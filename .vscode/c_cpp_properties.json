@@ -1,0 +1,31 @@
+{
+  "configurations": [
+    {
+      "browse": {
+        "databaseFilename": "${default}",
+        "limitSymbolsToIncludedHeaders": false
+      },
+      "includePath": [
+        "/home/joy/mm_ws/devel/include/**",
+        "/home/joy/OCTOMAP_WS/devel/include/**",
+        "/home/joy/jaka_ws/devel/include/**",
+        "/opt/ros/noetic/include/**",
+        "/home/joy/OCTOMAP_WS/src/active_vision_control/include/**",
+        "/home/joy/OCTOMAP_WS/src/depth2octomap/include/**",
+        "/home/joy/OCTOMAP_WS/src/ftservoControl/include/**",
+        "/home/joy/OCTOMAP_WS/src/grid_path_searcher/include/**",
+        "/home/joy/jaka_ws/src/jaka_moveit_action/include/**",
+        "/home/joy/jaka_ws/src/jaka_path_searching/include/**",
+        "/home/joy/OCTOMAP_WS/src/multiple-object-tracking-lidar/include/**",
+        "/home/joy/OCTOMAP_WS/src/octomap_mapping/octomap_server/include/**",
+        "/usr/include/**"
+      ],
+      "name": "ROS",
+      "intelliSenseMode": "gcc-x64",
+      "compilerPath": "/usr/bin/gcc",
+      "cStandard": "gnu11",
+      "cppStandard": "c++14"
+    }
+  ],
+  "version": 4
+}
