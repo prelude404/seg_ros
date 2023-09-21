@@ -82,6 +82,7 @@
         "variant": "cpp",
         "bit": "cpp",
         "eigen": "cpp",
-        "core": "cpp"
+        "core": "cpp",
+        "*.ipp": "cpp"
     }
 }

@@ -10,12 +10,16 @@ project(seg_ros)
 find_package(catkin REQUIRED COMPONENTS
   roscpp
   rosbag
+  rostime
   cv_bridge
   image_transport
   rospy
   std_msgs
   sensor_msgs
   message_generation
+  message_filters
+  tf
+  tf_conversions
 )
 
 find_package(PCL REQUIRED)
@@ -26,6 +30,7 @@ find_package(Eigen3 REQUIRED)
 add_message_files(
   FILES
   Masks.msg
+  KeypointsWithScores.msg
 )
 
 generate_messages(
@@ -63,3 +68,6 @@ target_link_libraries(save_images ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
 add_executable(truncator src/truncator.cpp)
 target_link_libraries(truncator ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS} )
+
+add_executable(human_model src/human_model.cpp)
+target_link_libraries(human_model ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})

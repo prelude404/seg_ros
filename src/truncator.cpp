@@ -1,4 +1,6 @@
 #include <ros/ros.h>
+#include <visualization_msgs/Marker.h>
+#include <visualization_msgs/MarkerArray.h>
 
 #include <sensor_msgs/image_encodings.h>
 #include <sensor_msgs/PointCloud2.h>
@@ -7,22 +9,34 @@
 
 #include <Eigen/Eigen>
 #include <Eigen/Core>
+#include <Eigen/Geometry>
 
 #include <pcl/point_cloud.h>
 #include <pcl/point_types.h>
 #include <pcl/common/common.h>
 #include <pcl/visualization/cloud_viewer.h>
 #include <pcl_conversions/pcl_conversions.h>
+#include <pcl/sample_consensus/ransac.h>
+#include <pcl/sample_consensus/sac_model_cylinder.h>
+
+#include <pcl/features/normal_3d.h>
+#include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/filters/voxel_grid.h>
 
 bool check_Cylinder(pcl::PointXYZRGB start_p, pcl::PointXYZRGB end_p, pcl::PointXYZRGB check_p, double radius);
+bool ransac_algo(pcl::PointCloud<pcl::PointXYZRGB>::Ptr pc_human, pcl::PointXYZRGB joint1, pcl::PointXYZRGB joint2, double radius);
+void rviz_Cylinder(visualization_msgs::Marker& cylinder_marker, pcl::PointXYZRGB joint1, pcl::PointXYZRGB joint2, double radius);
+
 
 int main(int argc, char** argv){
     ros::init(argc, argv, "truncator");
     ros::NodeHandle nh;
 
-    ros::Publisher pub_human = nh.advertise<sensor_msgs::PointCloud2>("/pc_human", 1);
-    ros::Publisher pub_68 = nh.advertise<sensor_msgs::PointCloud2>("/pc_68", 1);
-    ros::Publisher pub_810 = nh.advertise<sensor_msgs::PointCloud2>("/pc_810", 1);
+    ros::Publisher pub_human = nh.advertise<sensor_msgs::PointCloud2>("/pc_human", 5);
+    ros::Publisher pub_68 = nh.advertise<sensor_msgs::PointCloud2>("/pc_68", 5);
+    ros::Publisher pub_810 = nh.advertise<sensor_msgs::PointCloud2>("/pc_810", 5);
+    ros::Publisher pub_markers = nh.advertise<visualization_msgs::MarkerArray>("/cylinder_marker", 5);
     
     // 图像读取
     cv::Mat color_image = cv::imread("/home/joy/mm_ws/src/seg_ros/images/color/color_13.png", cv::IMREAD_UNCHANGED);
@@ -48,7 +62,7 @@ int main(int argc, char** argv){
     double fy = 608.6277465820312;
     double cx = 315.4583435058594;
     double cy = 255.28733825683594;
-    double camera_factor = 1000;
+    double camera_factor = 1000; 
 
     // 三个关节的空间位置
     pcl::PointXYZRGB p6;
@@ -116,6 +130,18 @@ int main(int argc, char** argv){
 
     ros::Rate loop_rate(10.0);
 
+    visualization_msgs::Marker marker_68;
+    rviz_Cylinder(marker_68, p6, p8, r68);
+    marker_68.id = 0;
+
+    visualization_msgs::Marker marker_810;
+    rviz_Cylinder(marker_810, p8, p10, r810);
+    marker_810.id = 1;
+
+    visualization_msgs::MarkerArray marker_array;
+    marker_array.markers.push_back(marker_68);
+    marker_array.markers.push_back(marker_810);
+
     while(ros::ok()){
         pcl::toROSMsg(*pc_human, msg_human);
         msg_human.header.frame_id = "map";
@@ -131,6 +157,8 @@ int main(int argc, char** argv){
         msg_810.header.frame_id = "map";
         msg_810.header.stamp = ros::Time::now();
         pub_810.publish(msg_810);
+
+        pub_markers.publish(marker_array);
 
         ros::spinOnce();
 
@@ -152,4 +180,56 @@ bool check_Cylinder(pcl::PointXYZRGB a, pcl::PointXYZRGB b, pcl::PointXYZRGB s, 
     double inner_sba = (b.x-a.x)*(b.x-s.x) + (b.y-a.y)*(b.y-s.y) + (b.z-a.z)*(b.z-s.z);
 
     return dis<r && inner_sab>0 && inner_sba>0;
+}
+
+// bool ransac_algo(pcl::PointCloud<pcl::PointXYZRGB>::Ptr pc_human, pcl::PointXYZRGB joint1, pcl::PointXYZRGB joint2, double radius){
+//     // 得到包含法线信息的点云
+//     pcl::NormalEstimation<pcl::PointXYZRGB, pcl::Normal> ne;
+//     ne.setInputCloud(pc_human);
+//     pcl::PointCloud<pcl::Normal>::Ptr cloud_normals(new pcl::PointCloud<pcl::Normal>);
+//     pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
+//     ne.setSearchMethod(tree);
+//     ne.setRadiusSearch(0.02);
+//     ne.compute(*cloud_normals);
+//     pcl::PointCloud<pcl::PointNormal>::Ptr cloud_with_normals(new pcl::PointCloud<pcl::PointNormal>);
+//     pcl::concatenateFields(*pc_human, *cloud_normals, *cloud_with_normals);
+
+//     // RANSAC圆柱配准
+//     pcl::ModelCoefficients::Ptr coefficients(new pcl::ModelCoefficients);
+//     pcl::PointIndices::Ptr inliers(new pcl::PointIndices);
+//     pcl::SACSegmentationFromNormals<pcl::PointNormal, pcl::Normal> seg;
+// }
+
+void rviz_Cylinder(visualization_msgs::Marker& cylinder_marker, pcl::PointXYZRGB joint1, pcl::PointXYZRGB joint2, double radius)
+{
+    Eigen::Vector3d j1(joint1.x,joint1.y,joint1.z);
+    Eigen::Vector3d j2(joint2.x,joint2.y,joint2.z);
+
+    Eigen::Vector3d j12 = j1-j2;
+    j12.normalize();
+    Eigen::Vector3d reference_vector(0.0, 0.0, 1.0);
+    Eigen::Quaterniond quaternion = Eigen::Quaterniond::FromTwoVectors(reference_vector, j12);
+    
+    cylinder_marker.header.frame_id = "map";
+    cylinder_marker.header.stamp = ros::Time::now();
+    cylinder_marker.ns = "cylinder";
+    cylinder_marker.id = 0;
+    cylinder_marker.type = visualization_msgs::Marker::CYLINDER;
+    cylinder_marker.action = visualization_msgs::Marker::ADD;
+    cylinder_marker.pose.position.x = (j1.x() + j2.x()) / 2.0;
+    cylinder_marker.pose.position.y = (j1.y() + j2.y()) / 2.0;
+    cylinder_marker.pose.position.z = (j1.z() + j2.z()) / 2.0;
+    cylinder_marker.pose.orientation.x = quaternion.x();
+    cylinder_marker.pose.orientation.y = quaternion.y();
+    cylinder_marker.pose.orientation.z = quaternion.z();
+    cylinder_marker.pose.orientation.w = quaternion.w();
+    cylinder_marker.scale.x = 0.05;
+    cylinder_marker.scale.y = 0.05;
+    cylinder_marker.scale.z = (j1 - j2).norm();
+    cylinder_marker.color.r = 94.0/255.0;
+    cylinder_marker.color.g = 100.0/255.0;
+    cylinder_marker.color.b = 222.0/255.0;
+    cylinder_marker.color.a = 0.5;
+    cylinder_marker.lifetime = ros::Duration();
+
 }

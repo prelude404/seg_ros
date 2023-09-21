@@ -1,0 +1,22 @@
+<launch>
+    <!-- 启动 sim_cam_frame -->
+    <node name="sim_cam_frame" pkg="depth2octomap" type="sim_cam_frame" output="screen"/>
+
+    <!-- 等待两秒的写法不正确！！ -->
+    <!-- 等待 2 秒 -->
+    <!-- <node name="wait_2_seconds_2" pkg="std_msgs" type="sleep" args="2" output="screen">
+        <remap from="~output" to="/sim_cam_frame/sleep_output" />
+    </node> -->
+
+    <!-- 启动 pose_pub.py -->
+    <node name="pose_pub" pkg="seg_ros" type="pose_pub.py" output="screen" />
+
+    <!-- 等待 2 秒 -->
+    <!-- <node name="wait_2_seconds_3" pkg="std_msgs" type="sleep" args="2" output="screen">
+        <remap from="~output" to="/demo_launch/sleep_output" />
+    </node> -->
+
+    <!-- 启动 human_model -->
+    <node name="human_model" pkg="seg_ros" type="human_model" output="screen"/>
+
+</launch>
