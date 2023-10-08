@@ -34,9 +34,6 @@
 #include <pcl/filters/passthrough.h>
 #include <pcl/common/transforms.h>
 // #include <pcl/concatenate.h>
-#include <pcl/point_cloud.h>
-#include <pcl/point_types.h>
-#include <pcl/io/pcd_io.h>
 #include <pcl/registration/icp.h>
 #include <pcl/segmentation/extract_clusters.h>
 #include <pcl/filters/extract_indices.h>
@@ -201,7 +198,8 @@ void Camera::pic2cloud()
 class BodyPart
 {
 public:
-    BodyPart(std::string part_name, int part_type, std::vector<int> part_joints, double part_radius) : point_cloud(new pcl::PointCloud<pcl::PointXYZRGB>){
+    BodyPart(std::string part_name, int part_type, std::vector<int> part_joints, double part_radius) :
+    point_cloud(new pcl::PointCloud<pcl::PointXYZRGB>), cylinder_model(new pcl::PointCloud<pcl::PointXYZRGB>), trans_cylinder(new pcl::PointCloud<pcl::PointXYZRGB>){
         name = part_name;
         joints = part_joints;
         exist = false;
@@ -218,7 +216,11 @@ public:
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr point_cloud;
 
-    void icp_Cylinder(); // 生成圆柱点云与分离部位点云进行配准
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr cylinder_model;
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr trans_cylinder;
+
+    // void icp_Cylinder(); // 生成圆柱点云与分离部位点云进行配准
 
     int type; // 1:head, 2:body, 3:legs and arms
 };
@@ -243,6 +245,8 @@ public:
     void add_part(BodyPart& part){
         human_dict.push_back(part);
     }
+
+    void get_part_cylinder(); // 得到每个部位的圆柱点云模型
 
     void check_parts(); // 判断每个部位是否在图像中出现（赋值exist）
 
@@ -277,6 +281,8 @@ void Human::seg_cloud(const Camera& cam){
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr new_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::copyPointCloud(*cam.cam_pc, *new_pc); // 将cam.cam_pc复制给new_pc，可以删除其中的点云
     
+    check_parts(); // 检查各个部位是否存在
+
     for(BodyPart& part : human_dict){
         if(!part.exist || part.type!=1) continue;
 
@@ -316,6 +322,39 @@ void Human::seg_cloud(const Camera& cam){
         // part.point_cloud->height = 1;
         // part.point_cloud->width = part.point_cloud->points.size();
         // ROS_INFO("[%s] PointCloud Size = %i ",part.name.c_str(),part.point_cloud->width);
+
+        // 仅保留部位点云的最大聚类
+        pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
+        tree->setInputCloud(part.point_cloud);
+        // 设置分割参数, 执行欧式聚类分割
+        std::vector<pcl::PointIndices> cluster_indices;
+        pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
+        ec.setClusterTolerance(0.03);  // 设置近邻搜索的半径
+        ec.setMinClusterSize(10);     // 设置最小聚类点数
+        ec.setMinClusterSize(99999);     // 设置最大聚类点数
+        ec.setSearchMethod(tree);
+        ec.setInputCloud(part.point_cloud);
+        ec.extract(cluster_indices);
+        
+        int largest_cluster_index = -1;
+        size_t largest_cluster_size = 0;
+
+        for (size_t i = 0; i < cluster_indices.size(); ++i) {
+            if (cluster_indices[i].indices.size() > largest_cluster_size) {
+                largest_cluster_size = cluster_indices[i].indices.size();
+                largest_cluster_index = i;
+            }
+        }
+
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr largest_cluster(new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl::ExtractIndices<pcl::PointXYZRGB> extract;
+        extract.setInputCloud(part.point_cloud);
+        extract.setIndices(boost::make_shared<std::vector<int>>(cluster_indices[largest_cluster_index].indices));
+        extract.setNegative(false);
+        extract.filter(*largest_cluster);
+
+        part.point_cloud = largest_cluster;
+
     }
 
     for(BodyPart& part : human_dict){
@@ -338,6 +377,38 @@ void Human::seg_cloud(const Camera& cam){
             }
             
         }
+
+        // 仅保留部位点云的最大聚类
+        pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
+        tree->setInputCloud(part.point_cloud);
+        // 设置分割参数, 执行欧式聚类分割
+        std::vector<pcl::PointIndices> cluster_indices;
+        pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
+        ec.setClusterTolerance(0.03);  // 设置近邻搜索的半径
+        ec.setMinClusterSize(10);     // 设置最小聚类点数
+        ec.setMinClusterSize(99999);     // 设置最大聚类点数
+        ec.setSearchMethod(tree);
+        ec.setInputCloud(part.point_cloud);
+        ec.extract(cluster_indices);
+        
+        int largest_cluster_index = -1;
+        size_t largest_cluster_size = 0;
+
+        for (size_t i = 0; i < cluster_indices.size(); ++i) {
+            if (cluster_indices[i].indices.size() > largest_cluster_size) {
+                largest_cluster_size = cluster_indices[i].indices.size();
+                largest_cluster_index = i;
+            }
+        }
+
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr largest_cluster(new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl::ExtractIndices<pcl::PointXYZRGB> extract;
+        extract.setInputCloud(part.point_cloud);
+        extract.setIndices(boost::make_shared<std::vector<int>>(cluster_indices[largest_cluster_index].indices));
+        extract.setNegative(false);
+        extract.filter(*largest_cluster);
+
+        part.point_cloud = largest_cluster;
     }
 
     for(BodyPart& part : human_dict){
@@ -360,6 +431,38 @@ void Human::seg_cloud(const Camera& cam){
             }
             
         }
+
+        // 仅保留部位点云的最大聚类
+        pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
+        tree->setInputCloud(part.point_cloud);
+        // 设置分割参数, 执行欧式聚类分割
+        std::vector<pcl::PointIndices> cluster_indices;
+        pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
+        ec.setClusterTolerance(0.03);  // 设置近邻搜索的半径
+        ec.setMinClusterSize(10);     // 设置最小聚类点数
+        ec.setMinClusterSize(99999);     // 设置最大聚类点数
+        ec.setSearchMethod(tree);
+        ec.setInputCloud(part.point_cloud);
+        ec.extract(cluster_indices);
+        
+        int largest_cluster_index = -1;
+        size_t largest_cluster_size = 0;
+
+        for (size_t i = 0; i < cluster_indices.size(); ++i) {
+            if (cluster_indices[i].indices.size() > largest_cluster_size) {
+                largest_cluster_size = cluster_indices[i].indices.size();
+                largest_cluster_index = i;
+            }
+        }
+
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr largest_cluster(new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl::ExtractIndices<pcl::PointXYZRGB> extract;
+        extract.setInputCloud(part.point_cloud);
+        extract.setIndices(boost::make_shared<std::vector<int>>(cluster_indices[largest_cluster_index].indices));
+        extract.setNegative(false);
+        extract.filter(*largest_cluster);
+
+        part.point_cloud = largest_cluster;
     }
 }
 
@@ -403,6 +506,86 @@ bool Human::check_Cylinder(std::vector<double> a, std::vector<double> b, std::ve
     return dis < r && inner_sab > 0 && inner_sba > 0;
 }
 
+void Human::get_part_cylinder(){
+    double spacing = 0.03;
+
+    // 为点设置颜色（这里用红色示例）
+    uint8_t r = 255;
+    uint8_t g = 0;
+    uint8_t b = 0;
+    uint32_t rgb = ((uint32_t)r << 16 | (uint32_t)g << 8 | (uint32_t)b);
+
+    for(BodyPart& part : human_dict){
+        double height;
+        switch (part.type){
+            case 1: height = 0.4; // 头
+            case 2: height = 0.6; // 身体
+            case 3: height = 0.5; // 四肢
+        }
+
+        int point_index = 0;
+
+        // 计算圆柱上每个点的坐标和颜色并加入点云
+        for (double z = -height / 2.0; z <= height / 2.0; z += spacing) {
+            // 若为完整圆柱，采用 0 - 2.0 * M_PI
+            for (double theta = M_PI; theta < M_PI*2.0; theta += spacing / part.radius) {
+                pcl::PointXYZRGB point;
+                point.x = part.radius * cos(theta);
+                point.z = part.radius * sin(theta);
+                point.y = z;
+
+                point.rgb = *reinterpret_cast<float*>(&rgb);
+
+                part.cylinder_model->points.push_back(point);
+            }
+        }
+
+        part.cylinder_model->height = 1;
+        part.cylinder_model->width = part.cylinder_model->points.size();
+        ROS_INFO("[%s] Part Cylinder_model PointCloud Size = %i ",part.name.c_str(), part.cylinder_model->width);
+    }
+}
+
+void Human::get_model(){
+    for(BodyPart& part : human_dict){
+        if(!part.exist) continue;
+
+        // pcl::PointCloud<pcl::PointXYZRGB>::Ptr trans_cylinder(new pcl::PointCloud<pcl::PointXYZRGB>);
+
+        part.trans_cylinder.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+
+        // Eigen::Vector3f start(part.start_p[0], part.start_p[1], part.start_p[2]);
+        // Eigen::Vector3f end(part.end_p[0], part.end_p[1], part.end_p[2]);
+
+        Eigen::Vector3f start(0.0, -1.0, 1.0);
+        Eigen::Vector3f end(0.0, 0.0, 1.0);
+
+        // 将start与end交换，半圆柱的朝向也换相反而且错误
+
+        Eigen::Vector3f origin = (start + end) * 0.5;
+        Eigen::Vector3f z_direction = (end - start).normalized();
+
+        Eigen::Vector3f x_axis(1.0, 0.0, 0.0);
+
+        Eigen::Vector3f y_direction = x_axis.cross(z_direction).normalized();
+
+        Eigen::Matrix4f transformation_matrix = Eigen::Matrix4f::Identity();
+
+        // Eigen::Matrix4f deeper_matrix;
+        // deeper_matrix << 1.0, 0.0, 0.0, 0.0,
+        //                  0.0, 1.0, 0.0, 0.0,
+        //                  0.0, 0.0, 1.0, part.radius*0.5,
+        //                  0.0, 0.0, 0.0, 1.0;
+
+        transformation_matrix.block<3, 1>(0, 3) = origin;
+        transformation_matrix.block<3, 1>(0, 1) = y_direction;
+        transformation_matrix.block<3, 1>(0, 2) = z_direction;
+
+        // pcl::transformPointCloud(*part.cylinder_model, *part.trans_cylinder, deeper_matrix * transformation_matrix);
+
+        pcl::transformPointCloud(*part.cylinder_model, *part.trans_cylinder, transformation_matrix);
+    }
+}
 
 /***  CAM1 RGB处理  ***/
 void color_cb1(const sensor_msgs::ImageConstPtr& color_msg)
@@ -457,7 +640,10 @@ void pose_cb1(const seg_ros::KeypointsWithScores& msg)
     human1.keypoint_pos.clear();
     for(const std::vector<int>& joint : human1.keypoints){       
         std::vector<double> j(3,0.0);
+        
         float d = cam1.depth_pic.ptr<float>(joint[1])[joint[0]];
+        // 利用图像的link长度求取先验深度而非直接读取！！36
+
         j[2] = double(d) / cam1.camera_factor;
         j[0] = (joint[0] - cam1.cx) * j[2] / cam1.fx;
         j[1] = (joint[1] - cam1.cy) * j[2] / cam1.fy;
@@ -536,6 +722,8 @@ int main(int argc, char** argv){
     human1.add_part(leg_right_upper);
     human1.add_part(leg_right_lower);
 
+    human1.get_part_cylinder();
+
     // 由joint位置作为先验生成几何包络
 
     // 发布人模型的几何表征结果
@@ -551,15 +739,18 @@ int main(int argc, char** argv){
     {
         cam1.pic2cloud(); // 生成人的点云
         
-        human1.check_parts(); // 检查各个部位是否存在
         human1.seg_cloud(cam1); // 分割生成存在部位点云
+
+        human1.get_model(); // 获取人的圆柱模型表征
 
         pcl::toROSMsg(*cam1.cam_pc, msg_human);
         msg_human.header.frame_id = "cam_1_link";
         msg_human.header.stamp = ros::Time::now();
         pub_human.publish(msg_human); // 发布整体人的点云
 
-        pcl::toROSMsg(*human1.human_dict[1].point_cloud, msg_part);
+        // pcl::toROSMsg(*human1.human_dict[1].point_cloud, msg_part);
+        // msg_part.header.frame_id = "cam_1_link";
+        pcl::toROSMsg(*human1.human_dict[1].trans_cylinder, msg_part);
         msg_part.header.frame_id = "cam_1_link";
         msg_part.header.stamp = ros::Time::now();
         pub_part.publish(msg_part); // 发布提取部位点云
