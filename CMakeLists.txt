@@ -4,6 +4,9 @@ project(seg_ros)
 ## Compile as C++11, supported in ROS Kinetic and newer
 # add_compile_options(-std=c++11)
 
+set(CMAKE_PREFIX_PATH "/opt/ros/noetic")
+set(CMAKE_MODULE_PATH "${CMAKE_PREFIX_PATH}/share/catkin/cmake")
+
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
@@ -25,6 +28,7 @@ find_package(catkin REQUIRED COMPONENTS
 find_package(PCL REQUIRED)
 find_package(OpenCV REQUIRED)
 find_package(Eigen3 REQUIRED)
+find_package(jsoncpp REQUIRED)
 # find_package(rosbag REQUIRED)
 
 add_message_files(
@@ -71,3 +75,6 @@ target_link_libraries(truncator ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LI
 
 add_executable(human_model src/human_model.cpp)
 target_link_libraries(human_model ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+
+add_executable(off_line src/off_line.cpp)
+target_link_libraries(off_line ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS} jsoncpp_lib)

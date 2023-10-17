@@ -19,7 +19,7 @@ print('测试单张图片并展示结果')
 
 time_start = time.time()
 
-for i in range(1, 21):
+for i in range(1, 20):
     img = mmcv.imread('/home/joy/mm_ws/src/seg_ros/images/color/color_'+str(i)+'.png')
     result = inference_detector(model, img)
     instances = result.pred_instances

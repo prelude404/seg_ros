@@ -323,39 +323,8 @@ void Human::seg_cloud(const Camera& cam){
         // part.point_cloud->width = part.point_cloud->points.size();
         // ROS_INFO("[%s] PointCloud Size = %i ",part.name.c_str(),part.point_cloud->width);
 
-        // 仅保留部位点云的最大聚类
-        pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
-        tree->setInputCloud(part.point_cloud);
-        // 设置分割参数, 执行欧式聚类分割
-        std::vector<pcl::PointIndices> cluster_indices;
-        pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
-        ec.setClusterTolerance(0.03);  // 设置近邻搜索的半径
-        ec.setMinClusterSize(10);     // 设置最小聚类点数
-        ec.setMinClusterSize(99999);     // 设置最大聚类点数
-        ec.setSearchMethod(tree);
-        ec.setInputCloud(part.point_cloud);
-        ec.extract(cluster_indices);
-        
-        int largest_cluster_index = -1;
-        size_t largest_cluster_size = 0;
-
-        for (size_t i = 0; i < cluster_indices.size(); ++i) {
-            if (cluster_indices[i].indices.size() > largest_cluster_size) {
-                largest_cluster_size = cluster_indices[i].indices.size();
-                largest_cluster_index = i;
-            }
-        }
-
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr largest_cluster(new pcl::PointCloud<pcl::PointXYZRGB>);
-        pcl::ExtractIndices<pcl::PointXYZRGB> extract;
-        extract.setInputCloud(part.point_cloud);
-        extract.setIndices(boost::make_shared<std::vector<int>>(cluster_indices[largest_cluster_index].indices));
-        extract.setNegative(false);
-        extract.filter(*largest_cluster);
-
-        part.point_cloud = largest_cluster;
-
     }
+
 
     for(BodyPart& part : human_dict){
         if(!part.exist || part.type!=3) continue;
@@ -378,37 +347,6 @@ void Human::seg_cloud(const Camera& cam){
             
         }
 
-        // 仅保留部位点云的最大聚类
-        pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
-        tree->setInputCloud(part.point_cloud);
-        // 设置分割参数, 执行欧式聚类分割
-        std::vector<pcl::PointIndices> cluster_indices;
-        pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
-        ec.setClusterTolerance(0.03);  // 设置近邻搜索的半径
-        ec.setMinClusterSize(10);     // 设置最小聚类点数
-        ec.setMinClusterSize(99999);     // 设置最大聚类点数
-        ec.setSearchMethod(tree);
-        ec.setInputCloud(part.point_cloud);
-        ec.extract(cluster_indices);
-        
-        int largest_cluster_index = -1;
-        size_t largest_cluster_size = 0;
-
-        for (size_t i = 0; i < cluster_indices.size(); ++i) {
-            if (cluster_indices[i].indices.size() > largest_cluster_size) {
-                largest_cluster_size = cluster_indices[i].indices.size();
-                largest_cluster_index = i;
-            }
-        }
-
-        pcl::PointCloud<pcl::PointXYZRGB>::Ptr largest_cluster(new pcl::PointCloud<pcl::PointXYZRGB>);
-        pcl::ExtractIndices<pcl::PointXYZRGB> extract;
-        extract.setInputCloud(part.point_cloud);
-        extract.setIndices(boost::make_shared<std::vector<int>>(cluster_indices[largest_cluster_index].indices));
-        extract.setNegative(false);
-        extract.filter(*largest_cluster);
-
-        part.point_cloud = largest_cluster;
     }
 
     for(BodyPart& part : human_dict){
@@ -462,7 +400,9 @@ void Human::seg_cloud(const Camera& cam){
         extract.setNegative(false);
         extract.filter(*largest_cluster);
 
+        part.point_cloud.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
         part.point_cloud = largest_cluster;
+
     }
 }
 
@@ -748,10 +688,10 @@ int main(int argc, char** argv){
         msg_human.header.stamp = ros::Time::now();
         pub_human.publish(msg_human); // 发布整体人的点云
 
-        // pcl::toROSMsg(*human1.human_dict[1].point_cloud, msg_part);
-        // msg_part.header.frame_id = "cam_1_link";
-        pcl::toROSMsg(*human1.human_dict[1].trans_cylinder, msg_part);
+        pcl::toROSMsg(*human1.human_dict[1].point_cloud, msg_part);
         msg_part.header.frame_id = "cam_1_link";
+        // pcl::toROSMsg(*human1.human_dict[1].trans_cylinder, msg_part);
+        // msg_part.header.frame_id = "cam_1_link";
         msg_part.header.stamp = ros::Time::now();
         pub_part.publish(msg_part); // 发布提取部位点云
         

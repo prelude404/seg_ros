@@ -11,12 +11,12 @@ int main(int argc, char** argv){
     ros::NodeHandle nh;
 
     rosbag::Bag bag;
-    bag.open("/home/joy/Documents/yyj/3.bag", rosbag::bagmode::Read);
+    bag.open("/home/joy/Documents/new_bag/1.bag", rosbag::bagmode::Read);
 
     std::vector<std::string> topics;
 
-    topics.push_back("/cam_1/color/image_raw");
-    topics.push_back("/cam_1/aligned_depth_to_color/image_raw");
+    topics.push_back("/camera/color/image_raw");
+    topics.push_back("/camera/aligned_depth_to_color/image_raw");
 
     std::string color_dir = "/home/joy/mm_ws/src/seg_ros/images/color/";
     std::string depth_dir = "/home/joy/mm_ws/src/seg_ros/images/depth/";
@@ -35,7 +35,7 @@ int main(int argc, char** argv){
         ros::Time msg_time = msg.getTime();
 
         // 深度图像
-        if(msg.getTopic()=="/cam_1/aligned_depth_to_color/image_raw" && (msg_time-last_depth_time).toSec() >= 1.0){
+        if(msg.getTopic()=="/camera/aligned_depth_to_color/image_raw" && (msg_time-last_depth_time).toSec() >= 1.0){
             sensor_msgs::Image::ConstPtr image_msg = msg.instantiate<sensor_msgs::Image>();
             if (image_msg != nullptr){
                 cv_bridge::CvImageConstPtr cv_ptr;
@@ -55,7 +55,7 @@ int main(int argc, char** argv){
         }
 
         // 彩色图像
-        if(msg.getTopic()=="/cam_1/color/image_raw" && (msg_time-last_color_time).toSec() >= 1.0){
+        if(msg.getTopic()=="/camera/color/image_raw" && (msg_time-last_color_time).toSec() >= 1.0){
             sensor_msgs::Image::ConstPtr image_msg = msg.instantiate<sensor_msgs::Image>();
             if (image_msg != nullptr){
                 cv_bridge::CvImageConstPtr cv_ptr;

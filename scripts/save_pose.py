@@ -6,6 +6,7 @@ from mmpose.registry import VISUALIZERS
 import time
 import numpy as np
 import json
+import pickle
 
 print('指定模型的配置文件和checkpoint文件路径')
 config_file = '/home/joy/mm_ws/src/seg_ros/configs/top_down/hrnet/td-hm_hrnet-w32_8xb64-210e_coco-256x192.py'
@@ -20,7 +21,7 @@ time_start = time.time()
 
 print('测试多张图片并展示结果')
 
-for i in range(1,21):
+for i in range(1,20):
     img_path = '/home/joy/mm_ws/src/seg_ros/images/color/color_'+str(i)+'.png'
     # img_path = '/home/joy/mm_ws/src/seg_ros/demo/yyj1.jpeg'
     img = mmcv.imread(img_path)
@@ -31,8 +32,15 @@ for i in range(1,21):
         "keypoints": data_samples.pred_instances.keypoints[0,:,:].tolist(),
         "scores": data_samples.pred_instances.keypoint_scores[0,:].tolist()
     }
+
     with open('/home/joy/mm_ws/src/seg_ros/images/pose/json/pose_'+str(i)+'.json', 'w') as json_file:
         json.dump(data, json_file, indent=2)
+
+    # with open('/home/joy/mm_ws/src/seg_ros/images/pose/keypoints/keypoints_'+str(i)+'.pkl', 'wb') as file1:
+    #     pickle.dump(data_samples.pred_instances.keypoints[0,:,:].tolist(), file1)
+
+    # with open('/home/joy/mm_ws/src/seg_ros/images/pose/scores/scores_'+str(i)+'.pkl', 'wb') as file2:
+    #     pickle.dump(data_samples.pred_instances.keypoint_scores[0,:].tolist(), file2)
 
     # 半径
     model.cfg.visualizer.radius = 5
