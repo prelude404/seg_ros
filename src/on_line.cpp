@@ -217,6 +217,8 @@ void Camera::pic2cloud()
     // 【实机】转换到基坐标系下过滤桌面和机械臂！！！
     base_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::transformPointCloud(*cam_pc, *base_pc, cam_to_base);
+    base_pc->height = 1;
+    base_pc->width = base_pc->points.size();
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr desk_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PassThrough<pcl::PointXYZRGB> pass1;
@@ -347,7 +349,7 @@ public:
         keypoints_pos.resize(3,point_num);
         keypoints_score.resize(point_num,1);
         part_trans.resize(part_num);
-        confidence = 0.0 * cam_num;
+        confidence = 0.3 * cam_num;
     }
 
     std::string human_num;
@@ -681,7 +683,7 @@ void Human::pub_cylinder(std_msgs::Float64MultiArray& msg)
         BodyPart& part = human_dict[i];
         if(!part.exist) break;
         
-        Eigen::Matrix4f part_base = part_trans[i].cast<float>();
+        Eigen::Matrix4f part_base = (part_trans[i]).cast<float>();
         msg.data.push_back(part_base(0,3));
         msg.data.push_back(part_base(1,3));
         msg.data.push_back(part_base(2,3));
