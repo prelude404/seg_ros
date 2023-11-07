@@ -61,7 +61,8 @@ if __name__ == '__main__':
 
     rospy.loginfo("Listening to Color Image Messages...")
 
-    rospy.Subscriber("/cam_1/color/image_raw", Image, color_cb1, queue_size=5)
+    # rospy.Subscriber("/cam_1/color/image_raw", Image, color_cb1, queue_size=5)
+    rospy.Subscriber("/camera/color/image_raw", Image, color_cb1, queue_size=5)
 
     pub_pose = rospy.Publisher("cam_1/pose", KeypointsWithScores, queue_size=1)
 

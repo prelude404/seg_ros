@@ -620,8 +620,8 @@ int main(int argc, char** argv){
 
     // D435相机的图像话题订阅和相机参数设定
     image_transport::ImageTransport it1(nh);
-    image_transport::Subscriber sub1_color = it1.subscribe(("/cam_"+cam1.cam_num+"/color/image_raw"), 1, color_cb1);
-    image_transport::Subscriber sub1_depth = it1.subscribe(("/cam_"+cam1.cam_num+"/aligned_depth_to_color/image_raw"), 1, depth_cb1);
+    image_transport::Subscriber sub1_color = it1.subscribe(("/cam_"+cam1.cam_num+"/color/image_raw"), 5, color_cb1);
+    image_transport::Subscriber sub1_depth = it1.subscribe(("/cam_"+cam1.cam_num+"/aligned_depth_to_color/image_raw"), 5, depth_cb1);
 
     tf::TransformListener* lis_cam1 = new(tf::TransformListener);
     
@@ -674,6 +674,7 @@ int main(int argc, char** argv){
 
     ros::Publisher pub_human = nh.advertise<sensor_msgs::PointCloud2>("/pc_human", 1);
     ros::Publisher pub_part = nh.advertise<sensor_msgs::PointCloud2>("/pc_part", 1);
+
 
     while(ros::ok())
     {

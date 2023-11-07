@@ -78,3 +78,6 @@ target_link_libraries(human_model ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_
 
 add_executable(off_line src/off_line.cpp)
 target_link_libraries(off_line ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS} jsoncpp_lib)
+
+add_executable(on_line src/on_line.cpp)
+target_link_libraries(on_line ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
