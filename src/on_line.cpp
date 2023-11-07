@@ -14,6 +14,7 @@
 #include <iostream>
 #include <fstream>
 #include <algorithm>
+#include <std_msgs/Float64MultiArray.h>
 
 // Eigen 库
 #include <Eigen/Eigen>
@@ -142,23 +143,23 @@ void Camera::pic2cloud()
         }
     }
 
-    // // if(listener != nullptr){ROS_INFO("Listener is NOT NULL");}
-    // tf::StampedTransform cam_trans;
-    // try{
-    //     listener->waitForTransform("base_link", ("cam_"+cam_num+"_link"),ros::Time(0.0),ros::Duration(1.0));
-    //     listener->lookupTransform("base_link", ("cam_"+cam_num+"_link"),ros::Time(0.0),cam_trans);
-    // }
-    // catch(tf::TransformException &ex)
-    // {
-    //     ROS_ERROR("camera_link: %s",ex.what());
-    //     ros::Duration(0.5).sleep();
-    //     return;
-    // }
-    // Eigen::Affine3d temp;
-    // tf::transformTFToEigen(cam_trans, temp);
-    // cam_to_base = temp.matrix().cast<double>();
+    // if(listener != nullptr){ROS_INFO("Listener is NOT NULL");}
+    tf::StampedTransform cam_trans;
+    try{
+        listener->waitForTransform("base_link", ("cam_"+cam_num+"_link"),ros::Time(0.0),ros::Duration(1.0));
+        listener->lookupTransform("base_link", ("cam_"+cam_num+"_link"),ros::Time(0.0),cam_trans);
+    }
+    catch(tf::TransformException &ex)
+    {
+        ROS_ERROR("camera_link: %s",ex.what());
+        ros::Duration(0.5).sleep();
+        return;
+    }
+    Eigen::Affine3d temp;
+    tf::transformTFToEigen(cam_trans, temp);
+    cam_to_base = temp.matrix().cast<double>();
 
-    cam_to_base = Eigen::Matrix4d::Identity();
+    // cam_to_base = Eigen::Matrix4d::Identity();
 
     // 还需要运行时间和点云数量检测
     raw_pc->height = 1;
@@ -177,32 +178,32 @@ void Camera::pic2cloud()
     pass_z_pc->width = pass_z_pc->points.size();
     ROS_INFO("[%s] Pass_Z PointCloud Size = %i ",cam_num.c_str(),pass_z_pc->width);
 
-    pcl::PassThrough<pcl::PointXYZRGB> pass_x;
-    pass_x.setInputCloud(pass_z_pc);
-    pass_x.setFilterFieldName("x");
-    pass_x.setFilterLimits(-1.3,1.3);
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pass_x_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
-    pass_x.filter(*pass_x_pc);
+    // pcl::PassThrough<pcl::PointXYZRGB> pass_x;
+    // pass_x.setInputCloud(pass_z_pc);
+    // pass_x.setFilterFieldName("x");
+    // pass_x.setFilterLimits(-1.3,1.3);
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr pass_x_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
+    // pass_x.filter(*pass_x_pc);
 
-    pass_x_pc->height = 1;
-    pass_x_pc->width = pass_x_pc->points.size();
-    ROS_INFO("[%s] Pass_X PointCloud Size = %i ",cam_num.c_str(),pass_x_pc->width);
+    // pass_x_pc->height = 1;
+    // pass_x_pc->width = pass_x_pc->points.size();
+    // ROS_INFO("[%s] Pass_X PointCloud Size = %i ",cam_num.c_str(),pass_x_pc->width);
 
-    pcl::PassThrough<pcl::PointXYZRGB> pass_y;
-    pass_y.setInputCloud(pass_x_pc);
-    pass_y.setFilterFieldName("y");
-    pass_y.setFilterLimits(-1.0,0.7);
-    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pass_y_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
-    pass_y.filter(*pass_y_pc);
+    // pcl::PassThrough<pcl::PointXYZRGB> pass_y;
+    // pass_y.setInputCloud(pass_x_pc);
+    // pass_y.setFilterFieldName("y");
+    // pass_y.setFilterLimits(-1.0,0.7);
+    // pcl::PointCloud<pcl::PointXYZRGB>::Ptr pass_y_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
+    // pass_y.filter(*pass_y_pc);
 
-    pass_y_pc->height = 1;
-    pass_y_pc->width = pass_y_pc->points.size();
-    ROS_INFO("[%s] Pass_Y PointCloud Size = %i ",cam_num.c_str(),pass_y_pc->width);
+    // pass_y_pc->height = 1;
+    // pass_y_pc->width = pass_y_pc->points.size();
+    // ROS_INFO("[%s] Pass_Y PointCloud Size = %i ",cam_num.c_str(),pass_y_pc->width);
     
     // 体素滤波
     pcl::VoxelGrid<pcl::PointXYZRGB> vox;
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr vox_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
-    vox.setInputCloud(pass_y_pc);
+    vox.setInputCloud(pass_z_pc);
     vox.setLeafSize(grid_size, grid_size, grid_size);
     vox.filter(*vox_pc);
     
@@ -214,6 +215,22 @@ void Camera::pic2cloud()
     vox_pc->is_dense = false;
 
     // 【实机】转换到基坐标系下过滤桌面和机械臂！！！
+    base_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::transformPointCloud(*cam_pc, *base_pc, cam_to_base);
+
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr desk_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PassThrough<pcl::PointXYZRGB> pass1;
+    pass1.setInputCloud(base_pc);
+    pass1.setFilterFieldName("z");
+    pass1.setFilterLimits(0.00, 2.00);
+    pass1.filter(*desk_pc);
+
+    desk_pc->height = 1;
+    desk_pc->width = desk_pc->points.size();
+    ROS_INFO("Passed Table PointCloud Size = %i ",desk_pc->width);
+
+    cam_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::transformPointCloud(*cam_pc, *desk_pc, cam_to_base.inverse().cast<float>());
     
     // 对于人体点云进行欧式聚类
     pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
@@ -353,6 +370,8 @@ public:
     void extract_parts(std::vector<Camera*> cams); // 从每个相机的深度图像中提取并合并成部位点云
 
     void icp_cylinder(); // 生成圆柱点云与分离部位点云进行配准
+
+    void pub_cylinder(std_msgs::Float64MultiArray& msg); // 发出圆柱阵列的位置姿态消息
 
     void get_markers(visualization_msgs::MarkerArray& marker_array); // 得到圆柱消息
     void update_markers(visualization_msgs::MarkerArray& marker_array); // 更新圆柱消息
@@ -627,7 +646,7 @@ void Human::icp_cylinder()
                 break;
         }
 
-        // if(part.point_cloud->points.size()<50) break; // 报错：Not enough correspondences found. Relax your threshold parameters.
+        if(part.point_cloud->points.size()<50) break; // 报错：Not enough correspondences found. Relax your threshold parameters.
 
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cylinder_trans(new pcl::PointCloud<pcl::PointXYZRGB>);
         pcl::transformPointCloud(*part.cylinder_model, *cylinder_trans, part_trans[i]);
@@ -651,6 +670,32 @@ void Human::icp_cylinder()
         {
             std::cout << "ICP did not converge." << std::endl;
         }
+    }
+}
+
+void Human::pub_cylinder(std_msgs::Float64MultiArray& msg)
+{
+    msg.data.clear();
+
+    for(int i=0; i<part_num; i++){
+        BodyPart& part = human_dict[i];
+        if(!part.exist) break;
+        
+        Eigen::Matrix4f part_base = part_trans[i].cast<float>();
+        msg.data.push_back(part_base(0,3));
+        msg.data.push_back(part_base(1,3));
+        msg.data.push_back(part_base(2,3));
+        msg.data.push_back(part_base(0,2));
+        msg.data.push_back(part_base(1,2));
+        msg.data.push_back(part_base(2,2));
+        msg.data.push_back(part.radius);
+        msg.data.push_back(part.height);
+        msg.data.push_back(0.0);
+        msg.data.push_back(0.0);
+        msg.data.push_back(0.0);
+        msg.data.push_back(0.0);
+        msg.data.push_back(0.0);
+        msg.data.push_back(0.0);
     }
 }
 
@@ -782,15 +827,24 @@ int main(int argc, char** argv){
     
     ros::Publisher pub_human = nh.advertise<sensor_msgs::PointCloud2>("/pc_human", 1);
     ros::Publisher pub_markers = nh.advertise<visualization_msgs::MarkerArray>("/cylinder_marker", 1);
-    
+    ros::Publisher pub_cylinders = nh.advertise<std_msgs::Float64MultiArray>("/obsState", 1);
+
     tf::TransformListener* lis_cam1 = new(tf::TransformListener);
     
     cam1 = Camera(1,lis_cam1);
 
-    cam1.fx = 912.1243896484375;
-    cam1.fy = 912.0189819335938;
-    cam1.cx = 636.1998291015625;
-    cam1.cy = 381.69732666015625;
+    // // D435i相机
+    // cam1.fx = 912.1243896484375;
+    // cam1.fy = 912.0189819335938;
+    // cam1.cx = 636.1998291015625;
+    // cam1.cy = 381.69732666015625;
+
+    // D435相机1
+    cam1.fx = 608.7494506835938;
+    cam1.fy = 608.6277465820312;
+    cam1.cx = 315.4583435058594;
+    cam1.cy = 255.28733825683594;
+
     cam1.camera_factor = 1000;
 
     std::vector<Camera*> cams;
@@ -828,6 +882,8 @@ int main(int argc, char** argv){
 
     sensor_msgs::PointCloud2 msg_human;
 
+    std_msgs::Float64MultiArray msg_cylinder;
+
     ros::Rate loop_rate(30.0);
 
     while(ros::ok() && (!depth_ready || !color_ready || !pose_ready)){
@@ -862,7 +918,11 @@ int main(int argc, char** argv){
 
         human1.icp_cylinder(); // 配准部位点云与圆柱模型
 
-        human1.update_markers(marker_array); // 更新圆柱消息信息
+        human1.pub_cylinder(msg_cylinder); // 更新圆柱位姿消息
+
+        pub_cylinders.publish(msg_cylinder);
+
+        human1.update_markers(marker_array); // 更新圆柱marker信息
 
         pub_markers.publish(marker_array); // 发布人体圆柱消息
         
