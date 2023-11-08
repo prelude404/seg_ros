@@ -18,6 +18,7 @@ import time
 from seg_ros.msg import KeypointsWithScores
 
 pic1_color = Image()
+pic2_color = Image()
 
 class Pose():
     def __init__(self):
@@ -52,6 +53,11 @@ def color_cb1(color_msg):
     global pic1_color
     pic1_color = color_msg
 
+def color_cb2(color_msg):
+    global pic2_color
+    pic2_color = color_msg
+
+
 if __name__ == '__main__':
     rospy.init_node('pose_pub')
     rate = rospy.Rate(30)
@@ -61,36 +67,50 @@ if __name__ == '__main__':
 
     rospy.loginfo("Listening to Color Image Messages...")
 
-    # rospy.Subscriber("/cam_1/color/image_raw", Image, color_cb1, queue_size=5)
-    rospy.Subscriber("/camera/color/image_raw", Image, color_cb1, queue_size=5)
+    rospy.Subscriber("/cam_1/color/image_raw", Image, color_cb1, queue_size=1)
+    rospy.Subscriber("/cam_2/color/image_raw", Image, color_cb2, queue_size=1)
 
-    pub_pose = rospy.Publisher("cam_1/pose", KeypointsWithScores, queue_size=1)
+    pub_pose1 = rospy.Publisher("cam_1/pose", KeypointsWithScores, queue_size=1)
+    pub_pose2 = rospy.Publisher("cam_2/pose", KeypointsWithScores, queue_size=1)
 
     pose1 = Pose()
+    pose2 = Pose()
 
     pic1_color_cur = -1
+    pic2_color_cur = -1
     
     bridge1 = CvBridge()
+    bridge2 = CvBridge()
 
     while not rospy.is_shutdown():
         
         if not pic1_color.header.stamp.to_sec() > 0 or pic1_color.header.stamp.to_sec() == pic1_color_cur:
             continue
+
+        if not pic2_color.header.stamp.to_sec() > 0 or pic2_color.header.stamp.to_sec() == pic2_color_cur:
+            continue
         
         pic1_color_cur = pic1_color.header.stamp.to_sec()
+        pic2_color_cur = pic2_color.header.stamp.to_sec()
 
         pose1.time = pic1_color.header.stamp
+        pose2.time = pic2_color.header.stamp
 
         # 保留color_image的时间戳
         img1 = bridge1.imgmsg_to_cv2(pic1_color, pic1_color.encoding)
+        img2 = bridge2.imgmsg_to_cv2(pic2_color, pic2_color.encoding)
 
-        if img1 is None:
+        if img1 is None or img2 is None:
             continue
         else:
-            rospy.loginfo("Received the Cam_1 Color Image.")
+            rospy.loginfo("Received Color Image.")
 
         pose1.infer(img1)
         pose1.getMessage()
-        pub_pose.publish(pose1.message)
+        pub_pose1.publish(pose1.message)
+
+        pose2.infer(img2)
+        pose2.getMessage()
+        pub_pose2.publish(pose2.message)
 
         rate.sleep()

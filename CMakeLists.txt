@@ -81,3 +81,6 @@ target_link_libraries(off_line ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIB
 
 add_executable(on_line src/on_line.cpp)
 target_link_libraries(on_line ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+
+add_executable(tf_sim src/tf_sim.cpp)
+target_link_libraries(tf_sim ${catkin_LIBRARIES})
