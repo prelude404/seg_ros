@@ -4,7 +4,7 @@
 
 int main(int argc, char **argv)
 {
-    ros::init(argc, argv, "sim_cam_frame");
+    ros::init(argc, argv, "tf_sim");
     ros::NodeHandle nh;
     ros::Rate loop_rate(10.0);
     

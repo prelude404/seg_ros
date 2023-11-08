@@ -697,7 +697,7 @@ void Human::pub_cylinder(std_msgs::Float64MultiArray& msg)
         Eigen::Matrix4f part_base = (part_trans[i]).cast<float>();
         msg.data.push_back(part_base(0,3));
         msg.data.push_back(part_base(1,3));
-        msg.data.push_back(part_base(2,3));
+        msg.data.push_back((part_base(2,3)-0.8));
         msg.data.push_back(part_base(0,2));
         msg.data.push_back(part_base(1,2));
         msg.data.push_back(part_base(2,2));
