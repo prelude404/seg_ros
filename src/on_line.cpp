@@ -283,8 +283,14 @@ void Camera::calc_pos()
         
         int m = keypoints(i,1);
         int n = keypoints(i,0);
-        positions(2,i) = depth_pic.at<ushort>(m,n) / camera_factor;
-        positions(2,i) = std::max(z_interval(0), std::min(z_interval(1),positions(2,i))); // 深度纠正（对于噪音非常有用！）
+
+        if(m<0 || m>depth_pic.rows || n<0 || n>depth_pic.cols){
+            positions(2,i) = (z_interval(0)+z_interval(1))/2.0;
+        }
+        else{
+            positions(2,i) = depth_pic.at<ushort>(m,n) / camera_factor;
+            positions(2,i) = std::max(z_interval(0), std::min(z_interval(1),positions(2,i))); // 深度纠正（对于噪音非常有用！）
+        }
 
         positions(0,i) = (n - cx) * positions(2,i) / fx;
         positions(1,i) = (m - cy) * positions(2,i) / fy;
@@ -330,7 +336,7 @@ public:
         keypoints_pos.resize(3,point_num);
         keypoints_score.resize(point_num,1);
         part_trans.resize(part_num);
-        confidence = 0.0 * cam_num;
+        confidence = 0.3 * cam_num;
     }
 
     std::string human_num;
@@ -379,8 +385,8 @@ void Human::fuse_pos(std::vector<Camera*> cams)
             keypoints_score(i) += cam.scores(i);
         }
         keypoints_pos.col(i) /= keypoints_score(i);
-        
-        ROS_INFO("Position of keypoint %i is: (%lf,%lf,%lf)", i, keypoints_pos(0,i), keypoints_pos(1,i), keypoints_pos(2,i));
+
+        // ROS_INFO("Position of keypoint %i is: (%lf,%lf,%lf)", i, keypoints_pos(0,i), keypoints_pos(1,i), keypoints_pos(2,i));
     }
 }
 
@@ -568,7 +574,12 @@ void Human::icp_cylinder()
     
     for(int i=0; i<part_num; i++){
         BodyPart& part = human_dict[i];
-        if(!part.exist) break;
+
+        if(part.point_cloud->points.size()<50){
+            part.exist = false;
+        }
+
+        if(!part.exist) continue;
 
         // 求取初始的转换矩阵存入part_trans[i]
         switch(part.type){
@@ -710,6 +721,7 @@ void Human::update_markers(visualization_msgs::MarkerArray& marker_array)
             marker_array.markers[i].pose.position.y = part_trans[i](1,3);
             marker_array.markers[i].pose.position.z = part_trans[i](2,3);
             Eigen::Quaterniond quat(part_trans[i].block<3,3>(0,0));
+            quat.normalize();
             marker_array.markers[i].pose.orientation.x = quat.x();
             marker_array.markers[i].pose.orientation.y = quat.y();
             marker_array.markers[i].pose.orientation.z = quat.z();
@@ -800,10 +812,10 @@ int main(int argc, char** argv){
     BodyPart body("body", 1, {5,6,11,12}, 0.2, 0.6);
     BodyPart head("head", 2, {0,1,2,3,4,5,6}, 0.1, 0.4);
 
-    BodyPart arm_left_upper("arm_left_upper", 3, {5,7}, 0.06, 0.4);
-    BodyPart arm_left_lower("arm_left_lower", 4,{7,9}, 0.05, 0.5);
-    BodyPart arm_right_upper("arm_right_upper", 3,{6,8}, 0.06, 0.4);
-    BodyPart arm_right_lower("arm_right_lower", 4,{8,10}, 0.05, 0.5);
+    BodyPart arm_left_upper("arm_left_upper", 3, {5,7}, 0.06, 0.3);
+    BodyPart arm_left_lower("arm_left_lower", 4,{7,9}, 0.05, 0.4);
+    BodyPart arm_right_upper("arm_right_upper", 3,{6,8}, 0.06, 0.3);
+    BodyPart arm_right_lower("arm_right_lower", 4,{8,10}, 0.05, 0.4);
     
     BodyPart leg_left_upper("leg_left_upper", 3,{11,13}, 0.12, 0.4);
     BodyPart leg_left_lower("leg_left_lower", 4,{13,15}, 0.1, 0.5);
@@ -845,15 +857,18 @@ int main(int argc, char** argv){
             cam.pic2cloud(); // 生成人的点云
 
             cam.get_z_interval(); // 人的点云深度区间
+            ROS_INFO("Here111");
 
             cam.calc_pos(); // 计算关键点空间位置
+            ROS_INFO("Here222");
         }
 
+        ROS_INFO("Here333");
         pcl::toROSMsg(*cam1.cam_pc, msg_human);
         msg_human.header.frame_id = "map";
         msg_human.header.stamp = ros::Time::now();
         pub_human.publish(msg_human); // 发布相机的整体人的点云
-
+        ROS_INFO("Here444");
         human1.fuse_pos(cams); // 融合相机关键点信息
 
         human1.check_parts(); // 判断各部位存在性
