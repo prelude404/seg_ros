@@ -308,8 +308,14 @@ void Camera::calc_pos()
         
         int m = keypoints(i,1);
         int n = keypoints(i,0);
-        positions(2,i) = depth_pic.at<ushort>(m,n) / camera_factor;
-        positions(2,i) = std::max(z_interval(0), std::min(z_interval(1),positions(2,i))); // 深度纠正（对于噪音非常有用！）
+
+        if(m<0 || m>depth_pic.rows || n<0 || n>depth_pic.cols){
+            positions(2,i) = (z_interval(0)+z_interval(1))/2.0;
+        }
+        else{
+            positions(2,i) = depth_pic.at<ushort>(m,n) / camera_factor;
+            positions(2,i) = std::max(z_interval(0), std::min(z_interval(1),positions(2,i))); // 深度纠正（对于噪音非常有用！）
+        }
 
         positions(0,i) = (n - cx) * positions(2,i) / fx;
         positions(1,i) = (m - cy) * positions(2,i) / fy;
