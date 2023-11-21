@@ -29,13 +29,11 @@
 
 cv_bridge::CvImagePtr color_ptr1;
 bool color_ready1 = false;
-cv_bridge::CvImagePtr color_ptr2;
-bool color_ready2 = false;
 
 bool esti_flag = false;
 
 // 相机内参矩阵
-std::vector<cv::Mat> camera_matrix;
+cv::Mat camera_matrix;
 
 // ArUco字典和参数
 int aruco_id = 0;
@@ -60,30 +58,13 @@ void color_cb1(const sensor_msgs::ImageConstPtr& color_msg)
     color_ready1 = true;
 }
 
-/***  CAM2 RGB处理  ***/
-void color_cb2(const sensor_msgs::ImageConstPtr& color_msg)
-{
-    try
-    {
-        color_ptr2 = cv_bridge::toCvCopy(color_msg, sensor_msgs::image_encodings::BGR8);
-        cv::waitKey(50); // 不断刷新图像，频率时间为int delay，单位为ms
-    }
-    catch (cv_bridge::Exception& e )
-    {
-        ROS_ERROR("Could not convert from '%s' to 'bgr8'.", color_msg->encoding.c_str());
-    }
-
-    // ROS_INFO("Color!!!");
-    color_ready2 = true;
-}
-
 /*** 开始估计信号处理 ***/
 void flag_cb(const std_msgs::Bool::ConstPtr& flag_msg)
 {
     esti_flag = flag_msg->data;
 }
 
-bool detect_aruco(cv_bridge::CvImagePtr cv_ptr, Eigen::Matrix4d& mat, int i)
+bool detect_aruco(cv_bridge::CvImagePtr cv_ptr, Eigen::Matrix4d& mat)
 {
     std::vector<std::vector<cv::Point2f>> corners;
     std::vector<int> ids;
@@ -91,13 +72,13 @@ bool detect_aruco(cv_bridge::CvImagePtr cv_ptr, Eigen::Matrix4d& mat, int i)
     cv::aruco::detectMarkers(cv_ptr->image, dictionary, corners, ids, parameter);
     
     if(ids.empty() || ids[0]!=aruco_id){
-        ROS_INFO("ArUco NOT Detected!!!");
+        ROS_INFO("Camera NOT Detect ArUco!!!");
         return false;
     }
     else{
         std::vector<cv::Vec3d> rvecs, tvecs;
 
-        cv::aruco::estimatePoseSingleMarkers(corners, aruco_size, camera_matrix[i], cv::Mat(), rvecs, tvecs);
+        cv::aruco::estimatePoseSingleMarkers(corners, aruco_size, camera_matrix, cv::Mat(), rvecs, tvecs);
         
         ROS_INFO("Detected ID [%i]", ids[0]);
 
@@ -145,59 +126,52 @@ int main(int argc, char **argv)
     image_transport::ImageTransport it1(nh);
     image_transport::Subscriber sub_color1 = it1.subscribe(("/cam_1/color/image_raw"), 1, color_cb1);
 
-    image_transport::ImageTransport it2(nh);
-    image_transport::Subscriber sub_color2 = it2.subscribe(("/cam_2/color/image_raw"), 1, color_cb2);
-
     ros::Subscriber sub_flag = nh.subscribe<std_msgs::Bool>("/estimate_flag", 1, flag_cb);
 
     ros::Publisher pub_trans1 = nh.advertise<geometry_msgs::PoseStamped>("/cam_1/trans", 1);
-    ros::Publisher pub_trans2 = nh.advertise<geometry_msgs::PoseStamped>("/cam_2/trans", 1);
-    geometry_msgs::PoseStamped trans_msg1, trans_msg2;
+    geometry_msgs::PoseStamped trans_msg1;
 
-    tf::TransformBroadcaster tf_broadcaster1, tf_broadcaster2;
-    tf::StampedTransform trans1, trans2;
+    tf::TransformBroadcaster tf_broadcaster1;
+    tf::StampedTransform trans1;
 
     Eigen::Matrix4d mat1 = Eigen::Matrix4d::Identity();
-    Eigen::Matrix4d mat2 = Eigen::Matrix4d::Identity();
 
     // 两台相机的内参矩阵
-    cv::Mat cam_mat1 = (cv::Mat_<double>(3, 3) <<
-                    912.1243896484375, 0.0, 636.1998291015625,
-                    0.0, 912.0189819335938, 381.69732666015625,
-                    0.0, 0.0, 1.0);
-
-    cv::Mat cam_mat2 = (cv::Mat_<double>(3, 3) <<
-                        912.1243896484375, 0.0, 636.1998291015625,
-                        0.0, 912.0189819335938, 381.69732666015625,
+    camera_matrix = (cv::Mat_<double>(3, 3) <<
+                        608.7494506835938, 0.0, 315.4583435058594,
+                        0.0, 608.6277465820312, 255.28733825683594,
                         0.0, 0.0, 1.0);
 
-    camera_matrix.push_back(cam_mat1);
-    camera_matrix.push_back(cam_mat2);
+    // camera_matrix = (cv::Mat_<double>(3, 3) <<
+    //                     606.3751831054688, 0.0, 331.2972717285156,
+    //                     0.0, 604.959716796875, 243.7368927001953,
+    //                     0.0, 0.0, 1.0);
 
-    ros::Rate loop_rate(30.0);
+    ros::Rate loop_rate(30.0), true_rate(1.0);
 
-    while(ros::ok() && (!color_ready1 || !color_ready2)){
+    while(ros::ok() && (!color_ready1)){
         ros::spinOnce();
         ROS_INFO("Waiting for Color Image...");
         loop_rate.sleep();
     }
 
+    ROS_INFO("Successfully get Color Image!");
+
     while(ros::ok()){
-        if(esti_flag && detect_aruco(color_ptr1, mat1, 0) && detect_aruco(color_ptr2, mat2, 1)){
+        
+        if(esti_flag && detect_aruco(color_ptr1, mat1)){
             
             std::cout << "Trans Matrix1: " << mat1 << std::endl;
-            std::cout << "Trans Matrix2: " << mat2 << std::endl;
             
             get_trans(mat1, trans1, trans_msg1);
-            get_trans(mat2, trans2, trans_msg2);
-            
+
             // tf_broadcaster1.sendTransform(tf::StampedTransform(trans1,ros::Time::now(),"cam_1_link", "aruco_link"));
-            // tf_broadcaster2.sendTransform(tf::StampedTransform(trans2,ros::Time::now(),"cam_2_link", "aruco_link"));
             
             pub_trans1.publish(trans_msg1);
-            pub_trans2.publish(trans_msg2);
             
             esti_flag = false;
+
+            true_rate.sleep();
         }
         
         ros::spinOnce();
