@@ -361,7 +361,7 @@ public:
         keypoints_pos.resize(3,point_num);
         keypoints_score.resize(point_num,1);
         part_trans.resize(part_num);
-        confidence = 0.0 * cam_num;
+        confidence = 0.3 * cam_num;
     }
 
     std::string human_num;
@@ -496,6 +496,11 @@ void Human::extract_parts(std::vector<Camera*> cams)
         for(int i=0; i<human_dict.size(); i++){
             
             BodyPart& part = human_dict[i];
+
+            if(part.point_cloud->points.size()<50){
+                part.exist = false;
+            }
+
             if(!part.exist) continue;
             
             switch (part.type){
@@ -931,15 +936,15 @@ int main(int argc, char** argv){
     BodyPart body("body", 1, {5,6,11,12}, 0.2, 0.5);
     BodyPart head("head", 2, {0,1,2,3,4,5,6}, 0.1, 0.3);
 
-    BodyPart arm_left_upper("arm_left_upper", 3, {5,7}, 0.06, 0.3);
-    BodyPart arm_left_lower("arm_left_lower", 4,{7,9}, 0.05, 0.4);
-    BodyPart arm_right_upper("arm_right_upper", 3,{6,8}, 0.06, 0.3);
-    BodyPart arm_right_lower("arm_right_lower", 4,{8,10}, 0.05, 0.4);
+    BodyPart arm_left_upper("arm_left_upper", 3, {5,7}, 0.06, 0.4);
+    BodyPart arm_left_lower("arm_left_lower", 4,{7,9}, 0.05, 0.5);
+    BodyPart arm_right_upper("arm_right_upper", 3,{6,8}, 0.06, 0.4);
+    BodyPart arm_right_lower("arm_right_lower", 4,{8,10}, 0.05, 0.5);
     
-    BodyPart leg_left_upper("leg_left_upper", 3,{11,13}, 0.12, 0.4);
-    BodyPart leg_left_lower("leg_left_lower", 4,{13,15}, 0.1, 0.5);
-    BodyPart leg_right_upper("leg_right_upper", 3,{12,14}, 0.12, 0.4);
-    BodyPart leg_right_lower("leg_right_lower", 4,{14,16}, 0.1, 0.5);
+    BodyPart leg_left_upper("leg_left_upper", 3,{11,13}, 0.12, 0.3);
+    BodyPart leg_left_lower("leg_left_lower", 4,{13,15}, 0.1, 0.4);
+    BodyPart leg_right_upper("leg_right_upper", 3,{12,14}, 0.12, 0.3);
+    BodyPart leg_right_lower("leg_right_lower", 4,{14,16}, 0.1, 0.4);
 
     human1.add_part(body);
     human1.add_part(head);

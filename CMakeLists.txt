@@ -87,3 +87,6 @@ target_link_libraries(tf_sim ${catkin_LIBRARIES})
 
 add_executable(cam_cali src/cam_cali.cpp)
 target_link_libraries(cam_cali ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+
+add_executable(cam_cali2 src/cam_cali2.cpp)
+target_link_libraries(cam_cali2 ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
