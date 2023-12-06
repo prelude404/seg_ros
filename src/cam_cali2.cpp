@@ -1,7 +1,7 @@
 /*
-========================================
-Already Catkin_maked but not Tested !!!
-========================================
+===================================================
+Already Tested ! Calibration and TF Tree Simulation
+===================================================
 */
 
 // 基础库
@@ -44,8 +44,8 @@ std::vector<cv::Mat> camera_matrix;
 
 // ArUco字典和参数
 int aruco_id = 0;
-double aruco_size = 0.05; // m
-cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_4X4_250);
+double aruco_size = 0.10; // m
+cv::Ptr<cv::aruco::Dictionary> dictionary = cv::aruco::getPredefinedDictionary(cv::aruco::DICT_6X6_250);
 cv::Ptr<cv::aruco::DetectorParameters> parameter = cv::aruco::DetectorParameters::create();
 
 /***  CAM1 RGB处理  ***/
@@ -98,7 +98,7 @@ bool detect_aruco(cv_bridge::CvImagePtr cv_ptr, Eigen::Matrix4d& mat, int i)
 
         cv::aruco::estimatePoseSingleMarkers(corners, aruco_size, camera_matrix[i], cv::Mat(), rvecs, tvecs);
         
-        ROS_INFO("Detected ID [%i]", ids[0]);
+        // ROS_INFO("Detected ID [%i]", ids[0]);
 
         cv::Vec3d rvec = rvecs[0];
         cv::Vec3d tvec = tvecs[0];
@@ -109,7 +109,7 @@ bool detect_aruco(cv_bridge::CvImagePtr cv_ptr, Eigen::Matrix4d& mat, int i)
         cv::cv2eigen(rot_mat, rotation_matrix);
         Eigen::Vector3d translation_vector(tvec[0], tvec[1], tvec[2]);
         
-        std::cout << "Translation Vector: " << translation_vector << std::endl;
+        // std::cout << "Translation Vector: " << translation_vector << std::endl;
 
         mat.block<3, 3>(0, 0) = rotation_matrix;
         mat.block<3, 1>(0, 3) = translation_vector;
@@ -163,9 +163,19 @@ void calc_mean(const std::vector<Eigen::Matrix4d>& vec, Eigen::Matrix4d& ans)
         avg_translation += translation / trans.size();
     }
 
+    double error = 0.0;
+    for (const Eigen::Vector3d& translation : trans) {
+        error += pow((translation-avg_translation).norm(),2);
+    }
+
+    error = sqrt(error);
+    std::cout << "Average ERROR is: " << error << std::endl;
+
     ans = Eigen::Matrix4d::Identity();
     ans.block<3, 3>(0, 0) = avg_rotation.toRotationMatrix();
     ans.block<3, 1>(0, 3) = avg_translation;
+
+    std::cout << "Average Transformation Matrix [cam2_cam1]:" << ans << std::endl;
 }
 
 int main(int argc, char **argv)
@@ -173,6 +183,28 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "cam_cali");
     ros::NodeHandle nh;
 
+    // 打个草稿
+    Eigen::Matrix4d cam1_world;
+    Eigen::Matrix4d cam2_world;
+
+    cam1_world << 
+      0.5, -0.433013,     -0.75, -0.263071,
+ 0.866025,      0.25,  0.433013, -0.363586,
+        0, -0.866025,       0.5,    -0.725,
+        0,         0,         0,         1;
+
+    cam2_world <<
+     -0.5, -0.433013,     -0.75, -0.263071,
+ 0.866025,     -0.25, -0.433013,  0.303586,
+        0, -0.866025,       0.5,    -0.725,
+        0,         0,         0,         1;
+
+    Eigen::Matrix4d real_cam2_cam1;
+    real_cam2_cam1 = cam1_world.inverse() * cam2_world;
+
+    std::cout << "Exp Real Result: " << real_cam2_cam1 << std::endl;
+
+    /*** aruco码标定 ***/
     image_transport::ImageTransport it1(nh);
     image_transport::Subscriber sub_color1 = it1.subscribe(("/cam_1/color/image_raw"), 1, color_cb1);
     image_transport::ImageTransport it2(nh);
@@ -201,6 +233,17 @@ int main(int argc, char **argv)
                         0.0, 604.959716796875, 243.7368927001953,
                         0.0, 0.0, 1.0);
 
+    // 工位的两台相机
+    // cv::Mat cam1_mat = (cv::Mat_<double>(3, 3) <<
+    //                     908.630615234375, 0.0, 636.9541625976562,
+    //                     0.0, 908.7796020507812, 382.03594970703125,
+    //                     0.0, 0.0, 1.0);
+
+    // cv::Mat cam2_mat = (cv::Mat_<double>(3, 3) <<
+    //                     912.1243896484375, 0.0, 636.1998291015625,
+    //                     0.0, 912.0189819335938, 381.69732666015625,
+    //                     0.0, 0.0, 1.0);
+
     camera_matrix.push_back(cam1_mat);
     camera_matrix.push_back(cam2_mat);
 
@@ -222,8 +265,8 @@ int main(int argc, char **argv)
         
         if(detect_aruco(color_ptr1, mat1, 0) && detect_aruco(color_ptr2, mat2, 1)){
             
-            std::cout << "Trans Matrix[1]: " << mat1 << std::endl;
-            std::cout << "Trans Matrix[2]: " << mat2 << std::endl;
+            // std::cout << "Trans Matrix[1]: " << mat1 << std::endl;
+            // std::cout << "Trans Matrix[2]: " << mat2 << std::endl;
             
             get_trans(mat1, trans1, trans_msg1);
             get_trans(mat2, trans2, trans_msg2);
@@ -234,12 +277,14 @@ int main(int argc, char **argv)
             pub_trans2.publish(trans_msg2);
             
             // 读取10次两台相机之间的转换矩阵用于求均值
-            if(mean_time < 10){
-                Eigen::Matrix4d cam2_cam1 = mat1.inverse() * mat2;
+            if(mean_time < 100){
+                Eigen::Matrix4d cam2_cam1 = mat1 * mat2.inverse();
+                std::cout << "#" << mean_time << "# Trans Matrix[cam2_cam1]: " << cam2_cam1 << std::endl;
                 result.push_back(cam2_cam1);
                 mean_time++;
             }
             else{
+                calc_mean(result, cam2_to_cam1);
                 break;
             }
 
@@ -249,4 +294,25 @@ int main(int argc, char **argv)
         
         loop_rate.sleep();
     }
+
+    ROS_INFO("Successfully get cam2_cam1 transformation!");
+
+    // /*** TF树发布 ***/
+    // tf::TransformBroadcaster tf_broadcaster;
+    // tf::StampedTransform cam2_to_cam1_trans;
+    
+    // Eigen::Vector3d pos = cam2_to_cam1.block<3,1>(0,3);
+    // Eigen::Quaterniond quat = Eigen::Quaterniond(cam2_to_cam1.block<3,3>(0,0));
+    // cam2_to_cam1_trans.setOrigin(tf::Vector3(pos(0),pos(1),pos(2)));
+    // cam2_to_cam1_trans.setRotation(tf::Quaternion(quat.x(),quat.y(),quat.z(),quat.w()));
+
+    // while (ros::ok())
+    // {
+    //     tf_broadcaster.sendTransform(tf::StampedTransform(cam2_to_cam1_trans,ros::Time::now(),"cam_1_link", "cam_2_link"));
+
+    //     ros::spinOnce();
+    //     loop_rate.sleep();
+    // }
+
+    return 0;
 }
