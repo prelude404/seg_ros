@@ -70,14 +70,15 @@ public:
         positions.resize(3,point_num);
     }
     
-    Camera(int value, tf::TransformListener *lis) : mask_image(720, 1280, CV_8UC1, cv::Scalar(255)){
+    Camera(int value, tf::TransformListener *lis) : mask_image(480, 640, CV_8UC1, cv::Scalar(255)){
         cam_num = std::to_string(value);
         // tf::TransformListener *listener = lis; // 若在构造函数内定义listener则其作用域在该函数内
         listener = lis;
         cam_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
         base_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
         keypoints.resize(point_num,2);
-        scores.resize(point_num,1);
+        scores.resize(point_num,win_len);
+        point_exist.resize(point_num,1);
         positions.resize(3,point_num);
     }
 
@@ -87,21 +88,28 @@ public:
     cv::Mat color_pic; // 彩色图像
     cv::Mat depth_pic; // 深度图像
     cv::Mat mask_image; // 掩模图像
+    cv::Mat color_mask; // 掩模附在彩色图像上
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cam_pc,base_pc; // 相机和基坐标系点云
     Eigen::Matrix4d cam_to_base; // 储存cam2base
     void pic2cloud(); // 得到cam_pc, base_pc and cam_trans
     void pic2human(); // 得到人目标的实例分割点云
     void get_z_interval(); // 得到人点云的深度包围盒区间
     void calc_pos(); // 计算纠正后的关键点位置，并转至基坐标系
+    void check_points(); // 判断每个关键点的可靠性
 
     Eigen::MatrixX2i keypoints;
-    Eigen::VectorXd scores;
+    Eigen::MatrixXd scores;
+    Eigen::VectorXi point_exist;
     Eigen::Matrix3Xd positions;
     Eigen::Vector2d z_interval;
 
     double z_far_lim = 2.0; // 原始点云的视野限制
     double grid_size = 0.02; // 体素滤波分辨率
     double z_delta = 0.90; // 深度包围盒点云比例
+    int win_len = 5; // 滑窗的长度
+    int r_len = 5; // 平均深度的方框
+    double gamma = 0.7; // 遗忘因子
+    double alpha = 2.0; // 限制力度
 
 private:
     tf::TransformListener* listener; // 读取base2cam
@@ -124,7 +132,7 @@ void Camera::pic2cloud()
         for (int n = 0; n < depth_pic.cols; n++)
         {
             // 获取深度图中(m,n)处的值
-            float d = depth_pic.ptr<float>(m)[n];//ushort d = depth_pic.ptr<ushort>(m)[n];
+            float d = depth_pic.at<float>(m, n);//ushort d = depth_pic.ptr<ushort>(m)[n];
             // d 可能没有值，若如此，跳过此点
             if (d <= 0.00)
                 continue;
@@ -219,7 +227,7 @@ void Camera::pic2cloud()
     pcl::PassThrough<pcl::PointXYZRGB> pass_desk;
     pass_desk.setInputCloud(base_pc);
     pass_desk.setFilterFieldName("z");
-    pass_desk.setFilterLimits(0.10, 2.00);
+    pass_desk.setFilterLimits(0.05, 1.50);
     pass_desk.filter(*desk_pc);
 
     desk_pc->height = 1;
@@ -229,13 +237,15 @@ void Camera::pic2cloud()
     pcl::PassThrough<pcl::PointXYZRGB> pass_y;
     pass_y.setInputCloud(desk_pc);
     pass_y.setFilterFieldName("y");
-    pass_y.setFilterLimits(-0.8,0.8);
+    pass_y.setFilterLimits(-1.0,1.0);
     base_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
     pass_y.filter(*base_pc);
 
     base_pc->height = 1;
     base_pc->width = base_pc->points.size();
     ROS_INFO("[%s] Pass_Y PointCloud Size = %i ",cam_num.c_str(),base_pc->width);
+
+    /* 圆柱包络去除机械臂 */
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cam_y_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::transformPointCloud(*base_pc, *cam_y_pc, cam_to_base.inverse().cast<float>());
@@ -292,20 +302,72 @@ void Camera::get_z_interval()
             return point1.z < point2.z;
         });
 
-    size_t index_low = static_cast<size_t>((1-0.95)/2.0 * cam_pc->points.size());
+    size_t index_low = static_cast<size_t>((1-0.99)/2.0 * cam_pc->points.size());
     size_t index_high = static_cast<size_t>((1+0.50)/2.0 * cam_pc->points.size());
     
     z_interval[0] = cam_pc->points[index_low].z;
     z_interval[1] = cam_pc->points[index_high].z;
 
+    // // 先令z_interval不发挥作用
+    // z_interval[0] = cam_pc->points[0].z;
+    // z_interval[1] = cam_pc->points[cam_pc->points.size()-1].z;
+
     ROS_INFO("Z_Interval of [cam%s] is [%lf, %lf]", cam_num.c_str(), z_interval[0], z_interval[1]);
+}
+
+/***  关键点的可靠性判定与深度估计与空间位置求取  ***/
+void Camera::check_points()
+{
+    for(int i=0; i<point_num; i++){
+        // 可靠性判定
+        point_exist(i) = (scores.row(i).sum() > alpha) ? 1 : 0;
+
+        // 深度估计：取相邻方块中的平均深度
+        int m = keypoints(i,1);
+        int n = keypoints(i,0);
+        int start_row = std::max(m-r_len,0);
+        int end_row = std::min(m+r_len,depth_pic.rows);
+        int start_col = std::max(n-r_len,0);
+        int end_col = std::min(n+r_len,depth_pic.cols);
+        
+        if(m<0 || m>=depth_pic.rows || n<0 || n>=depth_pic.cols){
+            positions(2,i) = (z_interval(0)+z_interval(1))/2.0;
+        }
+        else{
+            int count = 0;
+            positions(2,i) = 0.0;
+            for(int p=start_row; p<end_row; p++){
+                for(int q=start_col; q<end_col; q++){
+                    if(depth_pic.at<float>(p, q) <= 0.00) continue;
+                    positions(2,i) += depth_pic.at<float>(p, q) / camera_factor;
+                    // positions(2,i) += depth_pic.at<ushort>(p,q) / camera_factor;
+                    count++;
+                }
+            }
+            if(count>0){
+                positions(2,i) /= count;
+                positions(2,i) = std::max(z_interval(0), std::min(z_interval(1),positions(2,i)));
+            }
+            else{
+                positions(2,i) = (z_interval(0)+z_interval(1))/2.0;
+            }
+        }
+
+        // 获取深度图的数据类型: CV_32F
+        // int depth_type = depth_pic.type();
+
+        positions(0,i) = (n - cx) * positions(2,i) / fx;
+        positions(1,i) = (m - cy) * positions(2,i) / fy;
+    }
 }
 
 /***  关键点的空间位置求取和深度纠正  ***/
 void Camera::calc_pos()
 {
     for(int i=0; i<point_num; i++){
-        
+
+        point_exist(i) = (scores.row(i).sum() > alpha) ? 1 : 0;
+
         int m = keypoints(i,1);
         int n = keypoints(i,0);
 
@@ -313,8 +375,10 @@ void Camera::calc_pos()
             positions(2,i) = (z_interval(0)+z_interval(1))/2.0;
         }
         else{
-            positions(2,i) = depth_pic.at<ushort>(m,n) / camera_factor;
-            positions(2,i) = std::max(z_interval(0), std::min(z_interval(1),positions(2,i))); // 深度纠正（对于噪音非常有用！）
+            positions(2,i) = depth_pic.at<float>(m,n) / camera_factor;
+            // positions(2,i) = depth_pic.ptr<float>(m)[n] / camera_factor;
+            // positions(2,i) = depth_pic.at<ushort>(m,n) / camera_factor;
+            // positions(2,i) = std::max(z_interval(0), std::min(z_interval(1),positions(2,i))); // 深度纠正（对于噪音非常有用！）
         }
 
         positions(0,i) = (n - cx) * positions(2,i) / fx;
@@ -322,6 +386,49 @@ void Camera::calc_pos()
 
         // ROS_INFO("Position of keypoint %i is: (%lf,%lf,%lf)", i, positions(0,i), positions(1,i), positions(2,i));
     }
+}
+
+class Window
+{
+public:
+    Window(){}
+
+    void add_state(const bool& exist, const Eigen::Matrix4d& trans_mat);
+    
+    void fuse_state(Eigen::Matrix4d& fused_trans);
+
+private:
+    int size_ = 5;
+    std::deque<bool> exist_win;
+    std::deque<Eigen::VectorXd> pose_win;
+
+};
+
+void Window::add_state(const bool& exist, const Eigen::Matrix4d& trans_mat){
+    if(exist_win.size() == size_ && pose_win.size() == size_){
+        exist_win.pop_front();
+        pose_win.pop_front();
+    }
+    
+    exist_win.push_back(exist);
+    if(!exist){
+        Eigen::VectorXd fake_state = Eigen::VectorXd::Zero(6);
+        pose_win.push_back(fake_state);
+    }
+    else{
+        Eigen::Matrix3d rotation_matrix = trans_mat.block<3, 3>(0, 0);
+        Eigen::Vector3d translation_matrix = trans_mat.block<3, 1>(0, 3);
+        Eigen::AngleAxisd rotation_angle_axis(rotation_matrix);
+        Eigen::VectorXd real_state(6);
+        real_state.head(3) = rotation_angle_axis.angle() * rotation_angle_axis.axis();
+        real_state.tail(3) = translation_matrix;
+
+        pose_win.push_back(real_state);
+    }
+}
+
+void Window::fuse_state(Eigen::Matrix4d& fused_trans){
+    
 }
 
 class BodyPart
@@ -362,6 +469,7 @@ public:
         keypoints_score.resize(point_num,1);
         part_trans.resize(part_num);
         confidence = 0.3 * cam_num;
+        human_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
     }
 
     std::string human_num;
@@ -390,6 +498,8 @@ public:
     void get_markers(visualization_msgs::MarkerArray& marker_array); // 得到圆柱消息
     void update_markers(visualization_msgs::MarkerArray& marker_array); // 更新圆柱消息
 
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr human_pc;
+
 private:
     double confidence;
 };
@@ -404,12 +514,14 @@ void Human::fuse_pos(std::vector<Camera*> cams)
 
     for(int i=0; i<point_num; i++){
         for(Camera* curr : cams){
+            // 未在融合时考虑同一key point在不同相机中的存在性问题
             Camera& cam = (*curr);
             Eigen::Vector4d homogeneous_coordinates;
             homogeneous_coordinates << cam.positions.col(i), 1;
             Eigen::Vector4d base_coordinates = cam.cam_to_base * homogeneous_coordinates;
-            keypoints_pos.col(i) += cam.scores(i) * base_coordinates.head<3>();
-            keypoints_score(i) += cam.scores(i);
+            keypoints_pos.col(i) += cam.scores(i,(cam.win_len-1)) * base_coordinates.head<3>();
+            
+            keypoints_score(i) += cam.scores(i,(cam.win_len-1));
         }
         keypoints_pos.col(i) /= keypoints_score(i);
         
@@ -432,12 +544,26 @@ void Human::get_part_cylinder()
 
         int point_index = 0;
 
+        double scale;
+
+        switch (part.type){
+            case 1:
+                scale = 0.4;
+                break;
+            case 2:
+                scale = 0.8;
+                break;
+            default:
+                scale = 1.0;
+                break;
+        }
+        
         // 计算圆柱上每个点的坐标和颜色并加入点云
         for (double z = -part.height / 2.0; z <= part.height / 2.0; z += spacing) {
             // 若为完整圆柱，采用 0 - 2.0 * M_PI（多台相机情况）
             for (double theta = - M_PI/2; theta <= M_PI/2; theta += spacing / part.radius) {
                 pcl::PointXYZRGB point;
-                point.x = part.radius * cos(theta);
+                point.x = scale * part.radius * cos(theta);
                 point.y = part.radius * sin(theta);
                 point.z = z;
 
@@ -475,6 +601,7 @@ void Human::extract_parts(std::vector<Camera*> cams)
     // 清空人体的点云
     for(BodyPart& part : human_dict){
         part.point_cloud.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+        part.exist = false;
     }
     
     // 分别获取每一相机的部位点云
@@ -492,24 +619,31 @@ void Human::extract_parts(std::vector<Camera*> cams)
             cam.keypoints(i,1) = static_cast<int>(cam.positions(1,i) * cam.fy / cam.positions(2,i) + cam.cy);
         }
 
-        // 制作掩模图像
+        // 制作掩模图像（存在性针对每台相机分别判断）
         for(int i=0; i<human_dict.size(); i++){
             
             BodyPart& part = human_dict[i];
 
-            if(part.point_cloud->points.size()<50){
-                part.exist = false;
+            bool part_exist = false;
+
+            // 判断该台相机中该部位的存在性
+            for(const int& index : part.joints){
+                if(cam.point_exist(index)==1){
+                    part_exist = true;
+                    part.exist = true;
+                    break;
+                }
             }
 
-            if(!part.exist) continue;
+            if(!part_exist) continue;
             
             switch (part.type){
                 case 1:{
                     std::vector<cv::Point> trapezoid_body; // 躯干
-                    trapezoid_body.push_back(cv::Point((cam.keypoints(6,0)-std::abs(cam.keypoints(6,0)-cam.keypoints(8,0))/2.0),cam.keypoints(6,1)));
-                    trapezoid_body.push_back(cv::Point((cam.keypoints(5,0)+std::abs(cam.keypoints(5,0)-cam.keypoints(7,0))/2.0),cam.keypoints(5,1)));
-                    trapezoid_body.push_back(cv::Point((cam.keypoints(5,0)+std::abs(cam.keypoints(5,0)-cam.keypoints(7,0))/2.0),cam.keypoints(11,1)));
-                    trapezoid_body.push_back(cv::Point((cam.keypoints(6,0)-std::abs(cam.keypoints(6,0)-cam.keypoints(8,0))/2.0),cam.keypoints(12,1)));
+                    trapezoid_body.push_back(cv::Point((cam.keypoints(6,0)-std::abs(cam.keypoints(6,0)-cam.keypoints(8,0))/2.0),cam.keypoints(6,1)-std::abs(cam.keypoints(5,0)-cam.keypoints(6,0))/4.0));
+                    trapezoid_body.push_back(cv::Point((cam.keypoints(5,0)+std::abs(cam.keypoints(7,0)-cam.keypoints(5,0))/2.0),cam.keypoints(5,1)-std::abs(cam.keypoints(5,0)-cam.keypoints(6,0))/4.0));
+                    trapezoid_body.push_back(cv::Point((cam.keypoints(5,0)+std::abs(cam.keypoints(7,0)-cam.keypoints(5,0))/2.0),cam.keypoints(11,1)+std::abs(cam.keypoints(5,0)-cam.keypoints(6,0))/4.0));
+                    trapezoid_body.push_back(cv::Point((cam.keypoints(6,0)-std::abs(cam.keypoints(6,0)-cam.keypoints(8,0))/2.0),cam.keypoints(12,1)+std::abs(cam.keypoints(5,0)-cam.keypoints(6,0))/4.0));
                     
                     cv::fillConvexPoly(cam.mask_image, trapezoid_body, cv::Scalar(0));
                     
@@ -518,12 +652,12 @@ void Human::extract_parts(std::vector<Camera*> cams)
 
                 case 2:{
                     std::vector<cv::Point> trapezoid_head; // 头部
-                    trapezoid_head.push_back(cv::Point(cam.keypoints(6,0),0));
-                    trapezoid_head.push_back(cv::Point(cam.keypoints(5,0),0));
-                    trapezoid_head.push_back(cv::Point(cam.keypoints(5,0),cam.keypoints(5,1)));
-                    trapezoid_head.push_back(cv::Point(cam.keypoints(6,0),cam.keypoints(6,1)));
+                    trapezoid_head.push_back(cv::Point(cam.keypoints(6,0)+std::abs(cam.keypoints(5,0)-cam.keypoints(6,0))/6.0,cam.keypoints(6,1)-std::abs(cam.keypoints(5,0)-cam.keypoints(6,0))*1.5));
+                    trapezoid_head.push_back(cv::Point(cam.keypoints(5,0)-std::abs(cam.keypoints(5,0)-cam.keypoints(6,0))/6.0,cam.keypoints(5,1)-std::abs(cam.keypoints(5,0)-cam.keypoints(6,0))*1.5));
+                    trapezoid_head.push_back(cv::Point(cam.keypoints(5,0)-std::abs(cam.keypoints(5,0)-cam.keypoints(6,0))/6.0,cam.keypoints(5,1)-std::abs(cam.keypoints(5,0)-cam.keypoints(6,0))/4.0));
+                    trapezoid_head.push_back(cv::Point(cam.keypoints(6,0)+std::abs(cam.keypoints(5,0)-cam.keypoints(6,0))/6.0,cam.keypoints(6,1)-std::abs(cam.keypoints(5,0)-cam.keypoints(6,0))/4.0));
 
-                    cv::fillConvexPoly(cam.mask_image, trapezoid_head, cv::Scalar(1));
+                    cv::fillConvexPoly(cam.mask_image, trapezoid_head, cv::Scalar(15));
 
                     break;
                 }
@@ -548,7 +682,7 @@ void Human::extract_parts(std::vector<Camera*> cams)
                     n.normalize();
 
                     if(part.type == 4){
-                        b = b + (b-a)*0.25; // 手部和足部的延长
+                        b = b + (b-a)*0.7; // 手部和足部的延长
                     }
 
                     std::vector<cv::Point> trapezoid_limb;
@@ -557,12 +691,20 @@ void Human::extract_parts(std::vector<Camera*> cams)
                     trapezoid_limb.push_back(cv::Point((b(0)+b_r*n(0)),(b(1)+b_r*n(1))));
                     trapezoid_limb.push_back(cv::Point((b(0)-b_r*n(0)),(b(1)-b_r*n(1))));
 
-                    cv::fillConvexPoly(cam.mask_image, trapezoid_limb, cv::Scalar(i));
+                    cv::fillConvexPoly(cam.mask_image, trapezoid_limb, cv::Scalar(i*15));
 
                     break;
                 }
             }
         }
+
+        // 将mask_img附在color_pic上（通道数不同，分别融合再合并）
+        std::vector<cv::Mat> channels_color;
+        cv::split(cam.color_pic, channels_color);
+        for (int i = 0; i < cam.color_pic.channels(); ++i) {
+            cv::addWeighted(channels_color[i], 0.7, cam.mask_image, 0.3, 0, channels_color[i]);
+        }
+        cv::merge(channels_color, cam.color_mask);
 
         // 提取每一相机的每一部位的点云
         std::vector<pcl::PointCloud<pcl::PointXYZRGB>::Ptr> keypart_cloud;
@@ -570,12 +712,15 @@ void Human::extract_parts(std::vector<Camera*> cams)
             pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
             keypart_cloud.push_back(cloud);
         }
+
         for(const auto& point : cam.cam_pc->points){
             int n = static_cast<int>(point.x/point.z*cam.fx+cam.cx);
             int m = static_cast<int>(point.y/point.z*cam.fy+cam.cy);
-            // if(m<0 || m>cam.mask_image.rows || n<0 || n>cam.mask_image.cols) break;
+
+            if(m<0 || m>cam.mask_image.rows || n<0 || n>cam.mask_image.cols) continue;
+
             if(cam.mask_image.at<uchar>(m,n) != 255){
-                keypart_cloud[cam.mask_image.at<uchar>(m,n)]->points.push_back(point);
+                keypart_cloud[cam.mask_image.at<uchar>(m,n)/15]->points.push_back(point);
             }
         }
         // 将点云转至base_link合并到human_dict
@@ -598,6 +743,8 @@ void Human::extract_parts(std::vector<Camera*> cams)
 /***  各部位点云与半圆柱配准  ***/
 void Human::icp_cylinder()
 {
+    human_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+    
     pcl::IterativeClosestPoint<pcl::PointXYZRGB, pcl::PointXYZRGB> icp;
     icp.setMaximumIterations(500);
     icp.setMaxCorrespondenceDistance(0.02);
@@ -618,14 +765,20 @@ void Human::icp_cylinder()
             case 1:
             case 2:
             {
-                Eigen::Vector3d translation = Eigen::Vector3d::Zero();
-                for(const int& index : part.joints){
-                    translation += keypoints_pos.col(index);
-                }
-                translation /= part.joints.size();
+                // 使用点云坐标均值作为躯干中心
+                Eigen::Vector4d centroid; // 齐次坐标
+                pcl::compute3DCentroid(*part.point_cloud, centroid);
+                Eigen::Vector3d translation = centroid.head<3>();
+                
+                // // 使用关键点平均位置作为躯干中心
+                // Eigen::Vector3d translation = Eigen::Vector3d::Zero();
+                // for(const int& index : part.joints){
+                //     translation += keypoints_pos.col(index);
+                // }
+                // translation /= part.joints.size();
+
                 part_trans[i] = Eigen::Matrix4d::Identity();
                 part_trans[i].block<3,1>(0,3) = translation;
-
                 Eigen::Vector3d z_axis(0.0, 0.0, 1.0);
                 Eigen::Vector3d y_axis = translation.cross(z_axis).normalized();
                 Eigen::Vector3d x_axis = y_axis.cross(z_axis).normalized();
@@ -677,18 +830,22 @@ void Human::icp_cylinder()
 
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cylinder_align(new pcl::PointCloud<pcl::PointXYZRGB>);
 
-        icp.setInputSource(part.point_cloud);
-        icp.setInputTarget(cylinder_trans);
+        icp.setInputSource(cylinder_trans);
+        icp.setInputTarget(part.point_cloud);
         icp.align(*cylinder_align);
+
+        if(i==0 || i==1){
+            *human_pc += *cylinder_align; // 得到的人体模型点云（很不准确）
+        }
 
         if (icp.hasConverged())
         {
             std::cout << "ICP converged. Score: " << icp.getFitnessScore() << std::endl;
             // 获取ICP的变换矩阵
-            Eigen::Matrix4d part_cyli = icp.getFinalTransformation().cast<double>();
-            ROS_INFO("Part [%s] ICP Trans Result--(%lf, %lf, %lf)",part.name.c_str(), part_cyli(0,3),part_cyli(1,3),part_cyli(2,3));
+            Eigen::Matrix4d cyli_part = icp.getFinalTransformation().cast<double>();
+            ROS_INFO("Part [%s] ICP Trans Result--(%lf, %lf, %lf)",part.name.c_str(), cyli_part(0,3),cyli_part(1,3),cyli_part(2,3));
 
-            part_trans[i] = part_cyli * part_trans[i];
+            part_trans[i] = cyli_part.inverse() * part_trans[i]; // 是否使用ICP配准的结果
         }
         else
         {
@@ -830,12 +987,16 @@ void depth_cb1(const sensor_msgs::ImageConstPtr& depth_msg)
 /***  CAM_1 Pose处理  ***/
 void pose_cb1(const seg_ros::KeypointsWithScores& msg)
 {
+    cam1.scores.leftCols(cam1.win_len-1) = cam1.gamma * cam1.scores.rightCols(cam1.win_len-1);
+
     for(int i=0; i<point_num; i++){
         cam1.keypoints(i,0) = static_cast<int>(msg.keypoints[i].x);
         cam1.keypoints(i,1) = static_cast<int>(msg.keypoints[i].y);
-        cam1.scores(i) = msg.keypoint_scores[i].data;
+        cam1.scores(i,(cam1.win_len-1)) = msg.keypoint_scores[i].data;
     }
     pose_ready1 = true;
+
+    // std::cout << "cam1 scores: " << cam1.scores << std::endl;
 }
 
 /***  CAM2 RGB处理  ***/
@@ -878,12 +1039,16 @@ void depth_cb2(const sensor_msgs::ImageConstPtr& depth_msg)
 /***  CAM_2 Pose处理  ***/
 void pose_cb2(const seg_ros::KeypointsWithScores& msg)
 {
+    cam2.scores.leftCols(cam2.win_len-1) = cam2.gamma * cam2.scores.rightCols(cam2.win_len-1);
+
     for(int i=0; i<point_num; i++){
         cam2.keypoints(i,0) = static_cast<int>(msg.keypoints[i].x);
         cam2.keypoints(i,1) = static_cast<int>(msg.keypoints[i].y);
-        cam2.scores(i) = msg.keypoint_scores[i].data;
+        cam2.scores(i,(cam1.win_len-1)) = msg.keypoint_scores[i].data;
     }
     pose_ready2 = true;
+
+    // std::cout << "cam2 scores: " << cam2.scores << std::endl;
 }
 
 
@@ -906,6 +1071,11 @@ int main(int argc, char** argv){
     ros::Publisher pub_pc2 = nh.advertise<sensor_msgs::PointCloud2>("/pc_2", 1);
     ros::Publisher pub_markers = nh.advertise<visualization_msgs::MarkerArray>("/cylinder_marker", 1);
     ros::Publisher pub_cylinders = nh.advertise<std_msgs::Float64MultiArray>("/obsState", 1);
+    ros::Publisher pub_mask1 = nh.advertise<sensor_msgs::Image>("/mask_1", 1);
+    ros::Publisher pub_mask2 = nh.advertise<sensor_msgs::Image>("/mask_2", 1);
+
+    ros::Publisher pub_part = nh.advertise<sensor_msgs::PointCloud2>("/part_pc", 1);
+    ros::Publisher pub_model = nh.advertise<sensor_msgs::PointCloud2>("/part_model", 1);
 
     tf::TransformListener* lis_cam1 = new(tf::TransformListener);
     tf::TransformListener* lis_cam2 = new(tf::TransformListener);
@@ -933,18 +1103,18 @@ int main(int argc, char** argv){
     cams.push_back(&cam2);
 
     // 人模型的维护
-    BodyPart body("body", 1, {5,6,11,12}, 0.2, 0.5);
-    BodyPart head("head", 2, {0,1,2,3,4,5,6}, 0.1, 0.3);
+    BodyPart body("body", 1, {5,6,11,12}, 0.15, 0.4);
+    BodyPart head("head", 2, {0,1,2,3,4,5,6}, 0.1, 0.2);
 
-    BodyPart arm_left_upper("arm_left_upper", 3, {5,7}, 0.06, 0.4);
-    BodyPart arm_left_lower("arm_left_lower", 4,{7,9}, 0.05, 0.5);
-    BodyPart arm_right_upper("arm_right_upper", 3,{6,8}, 0.06, 0.4);
-    BodyPart arm_right_lower("arm_right_lower", 4,{8,10}, 0.05, 0.5);
+    BodyPart arm_left_upper("arm_left_upper", 3, {5,7}, 0.06, 0.3);
+    BodyPart arm_left_lower("arm_left_lower", 4,{7,9}, 0.05, 0.3);
+    BodyPart arm_right_upper("arm_right_upper", 3,{6,8}, 0.06, 0.3);
+    BodyPart arm_right_lower("arm_right_lower", 4,{8,10}, 0.05, 0.3);
     
     BodyPart leg_left_upper("leg_left_upper", 3,{11,13}, 0.12, 0.3);
-    BodyPart leg_left_lower("leg_left_lower", 4,{13,15}, 0.1, 0.4);
+    BodyPart leg_left_lower("leg_left_lower", 4,{13,15}, 0.1, 0.3);
     BodyPart leg_right_upper("leg_right_upper", 3,{12,14}, 0.12, 0.3);
-    BodyPart leg_right_lower("leg_right_lower", 4,{14,16}, 0.1, 0.4);
+    BodyPart leg_right_lower("leg_right_lower", 4,{14,16}, 0.1, 0.3);
 
     human1.add_part(body);
     human1.add_part(head);
@@ -962,7 +1132,7 @@ int main(int argc, char** argv){
     visualization_msgs::MarkerArray marker_array;
     human1.get_markers(marker_array);
 
-    sensor_msgs::PointCloud2 msg_pc1, msg_pc2;
+    sensor_msgs::PointCloud2 msg_pc1, msg_pc2, msg_part, msg_model;
 
     std_msgs::Float64MultiArray msg_cylinder;
 
@@ -984,7 +1154,9 @@ int main(int argc, char** argv){
 
             cam.get_z_interval(); // 人的点云深度区间
 
-            cam.calc_pos(); // 计算关键点空间位置
+            cam.check_points(); // 关键点的存在性与空间位置
+
+            // cam.calc_pos(); // 计算关键点空间位置
         }
 
         pcl::toROSMsg(*cam1.cam_pc, msg_pc1);
@@ -999,11 +1171,31 @@ int main(int argc, char** argv){
 
         human1.fuse_pos(cams); // 融合相机关键点信息
 
-        human1.check_parts(); // 判断各部位存在性
+        // human1.check_parts(); // 判断各部位存在性
 
         human1.extract_parts(cams); // 提取存在部位点云
 
+        // 发布掩模图像
+        cv_bridge::CvImage cv_image;
+        cv_image.encoding = "bgr8";
+        cv_image.image = cam1.color_mask;
+        sensor_msgs::ImagePtr msg = cv_image.toImageMsg();
+        pub_mask1.publish(msg);
+        cv_image.image = cam2.color_mask;
+        msg = cv_image.toImageMsg();
+        pub_mask2.publish(msg);
+
         human1.icp_cylinder(); // 配准部位点云与圆柱模型
+
+        pcl::toROSMsg((*human1.human_dict[0].point_cloud + *human1.human_dict[1].point_cloud), msg_part);
+        msg_part.header.frame_id = "base_link";
+        msg_part.header.stamp = ros::Time::now();
+        pub_part.publish(msg_part);
+
+        pcl::toROSMsg(*human1.human_pc, msg_model);
+        msg_model.header.frame_id = "base_link";
+        msg_model.header.stamp = ros::Time::now();
+        pub_model.publish(msg_model);
 
         human1.pub_cylinder(msg_cylinder); // 更新圆柱位姿消息
 
