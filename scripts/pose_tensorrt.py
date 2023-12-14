@@ -15,6 +15,10 @@ from mmpose.apis import inference_topdown, init_model
 from mmpose.structures import merge_data_samples
 import time
 
+from mmdeploy.apis import inference_model
+from mmdeploy.utils import load_config, get_input_shape
+from mmdeploy.apis.utils import build_task_processor
+
 from seg_ros.msg import KeypointsWithScores
 
 pic1_color = Image()
@@ -26,16 +30,29 @@ class Pose():
         self.checkpoint_file = '/home/joy/mm_ws/src/seg_ros/checkpoints/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth'
         # self.device = 'cpu'
         self.device = 'cuda:0' # 能用啦！！！
-        self.model = init_model(self.config_file, self.checkpoint_file, device=self.device, cfg_options={'model': {'test_cfg': {'output_heatmaps': False}}})
+        # self.model = init_model(self.config_file, self.checkpoint_file, device=self.device, cfg_options={'model': {'test_cfg': {'output_heatmaps': False}}})
+        # self.model = init_model(self.config_file, self.deploy_file, self.backend_file, device=self.device)
         self.time = None
         self.img = None
         self.keypoints = None
         self.keypoint_scores = None
         self.message = KeypointsWithScores()
 
+        self.deploy_file = '/home/joy/mm_ws/src/mmdeploy/configs/mmpose/pose-detection_tensorrt_dynamic-256x192.py'
+        self.backend_file = ['/home/joy/mm_ws/src/seg_ros/mmdeploy_model/hrnet/end2end.engine']
+
+        self.cfg1, self.cfg2 = load_config(self.config_file, self.deploy_file)
+        # self.task_processor = build_task_processor(self.cfg1, self.cfg2, self.device)
+        # self.model = self.task_processor.build_backend_model(self.backend_file, self.task_processor.update_data_preprocessor)
+        # input_shape = get_input_shape(self.cfg2)
+
     def infer(self,img):
         self.img = img
-        result = inference_topdown(self.model, self.img)
+        # result = inference_topdown(self.model, self.img)
+        result = inference_model(self.cfg1, self.cfg2, self.backend_file, self.img, self.device)
+        # result = inference_model(self.model, self.img)
+        # result = inference_model(self.config_file, self.deploy_file, self.backend_file, self.img, self.device)
+        # result = inference_model(self.model, self.img)
         data_samples = merge_data_samples(result)
         self.keypoints = data_samples.pred_instances.keypoints
         self.keypoint_scores = data_samples.pred_instances.keypoint_scores
@@ -83,7 +100,7 @@ if __name__ == '__main__':
     bridge1 = CvBridge()
     bridge2 = CvBridge()
 
-    # i = 1
+    i = 1
 
     while not rospy.is_shutdown():
         
@@ -93,8 +110,8 @@ if __name__ == '__main__':
         if not pic2_color.header.stamp.to_sec() > 0 or pic2_color.header.stamp.to_sec() == pic2_color_cur:
             continue
         
-        # if i==1:
-        #     time_start = time.time()
+        if i==1:
+            time_start = time.time()
         
         pic1_color_cur = pic1_color.header.stamp.to_sec()
         pic2_color_cur = pic2_color.header.stamp.to_sec()
@@ -119,11 +136,10 @@ if __name__ == '__main__':
         pose2.getMessage()
         pub_pose2.publish(pose2.message)
 
-        # i = i+1
+        i = i+1
 
-        # if i==21:
-        #     time_end = time.time()
-        #     print('[Pose Estimation Time] = {:.4f} , [FPS] = {:.2f}'.format((time_end - time_start)/20.0, 20.0/(time_end - time_start)))
-        #     break
-
+        if i==21:
+            time_end = time.time()
+            print('[Pose Estimation Time] = {:.4f} , [FPS] = {:.2f}'.format((time_end - time_start)/20.0, 20.0/(time_end - time_start)))
+            break
         rate.sleep()
