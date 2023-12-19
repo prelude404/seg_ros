@@ -56,6 +56,8 @@ bool depth_ready2 = false;
 bool color_ready2 = false;
 bool pose_ready2 = false;
 
+bool arm_flag = true;
+
 class Camera
 {
 public:
@@ -68,9 +70,17 @@ public:
         keypoints.resize(point_num,2);
         scores.resize(point_num,1);
         positions.resize(3,point_num);
+
+        listener1 = nullptr;
+        listener2 = nullptr;
+        listener3 = nullptr;
+        listener4 = nullptr;
+        listener5 = nullptr;
+        listener6 = nullptr;
     }
     
-    Camera(int value, tf::TransformListener *lis) : mask_image(480, 640, CV_8UC1, cv::Scalar(255)){
+    Camera(int value, tf::TransformListener *lis, tf::TransformListener *lis1, tf::TransformListener *lis2, tf::TransformListener *lis3,
+                                                  tf::TransformListener *lis4, tf::TransformListener *lis5, tf::TransformListener *lis6) : mask_image(480, 640, CV_8UC1, cv::Scalar(255)){
         cam_num = std::to_string(value);
         // tf::TransformListener *listener = lis; // 若在构造函数内定义listener则其作用域在该函数内
         listener = lis;
@@ -80,6 +90,67 @@ public:
         scores.resize(point_num,win_len);
         point_exist.resize(point_num,1);
         positions.resize(3,point_num);
+
+        listener1 = lis1;
+        listener2 = lis2;
+        listener3 = lis3;
+        listener4 = lis4;
+        listener5 = lis5;
+        listener6 = lis6;
+
+        point11.header.frame_id = "/link_1";
+        point11.point.x = 0.0;
+        point11.point.y = 0.0;
+        point11.point.z = 0.1;
+        point12.header.frame_id = "/link_1";
+        point12.point.x = 0.0;
+        point12.point.y = 0.0;
+        point12.point.z = -0.1;
+
+        point21.header.frame_id = "/link_2";
+        point21.point.x = 0.0;
+        point21.point.y = 0.0;
+        point21.point.z = -0.145;
+        point22.header.frame_id = "/link_2";
+        point22.point.x = 0.425;
+        point22.point.y = 0.0;
+        point22.point.z = -0.145;
+
+        point31.header.frame_id = "/link_3";
+        point31.point.x = 0.0;
+        point31.point.y = 0.0;
+        point31.point.z = 0.0;
+        point32.header.frame_id = "/link_3";
+        point32.point.x = 0.24;
+        point32.point.y = 0.0;
+        point32.point.z = 0.0;
+
+        point41.header.frame_id = "/link_4";
+        point41.point.x = 0.0;
+        point41.point.y = 0.0;
+        point41.point.z = 0.0;
+        point42.header.frame_id = "/link_4";
+        point42.point.x = 0.0;
+        point42.point.y = 0.0;
+        point42.point.z = 0.15;
+
+        point51.header.frame_id = "/link_5";
+        point51.point.x = 0.0;
+        point51.point.y = 0.0;
+        point51.point.z = 0.0;
+        point52.header.frame_id = "/link_5";
+        point52.point.x = 0.0;
+        point52.point.y = 0.0;
+        point52.point.z = -0.21;
+
+        point61.header.frame_id = "/link_6";
+        point61.point.x = 0.0;
+        point61.point.y = 0.0;
+        point61.point.z = 0.15;
+        point62.header.frame_id = "/link_6";
+        point62.point.x = 0.0;
+        point62.point.y = 0.0;
+        point62.point.z = -0.18;
     }
 
     std::string cam_num; // 相机编号
@@ -92,10 +163,15 @@ public:
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cam_pc,base_pc; // 相机和基坐标系点云
     Eigen::Matrix4d cam_to_base; // 储存cam2base
     void pic2cloud(); // 得到cam_pc, base_pc and cam_trans
-    void pic2human(); // 得到人目标的实例分割点云
+    // void pic2human(); // 得到人目标的实例分割点云
     void get_z_interval(); // 得到人点云的深度包围盒区间
     void calc_pos(); // 计算纠正后的关键点位置，并转至基坐标系
     void check_points(); // 判断每个关键点的可靠性
+
+    // 过滤机械臂点云
+    void cull_self(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr &full_pc, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cull_pc);
+    double DistanceOfPointToLine(Eigen::Vector3d a, Eigen::Vector3d b, Eigen::Vector3d s);
+    bool AngleJudge(Eigen::Vector3d a, Eigen::Vector3d b, Eigen::Vector3d c);
 
     Eigen::MatrixX2i keypoints;
     Eigen::MatrixXd scores;
@@ -114,6 +190,29 @@ public:
 private:
     tf::TransformListener* listener; // 读取base2cam
     tf::StampedTransform cam_trans;
+
+    tf::TransformListener* listener1;
+    tf::TransformListener* listener2;
+    tf::TransformListener* listener3;
+    tf::TransformListener* listener4;
+    tf::TransformListener* listener5;
+    tf::TransformListener* listener6;
+
+    geometry_msgs::PointStamped point11,point12;
+    geometry_msgs::PointStamped point21,point22;
+    geometry_msgs::PointStamped point31,point32;
+    geometry_msgs::PointStamped point41,point42;
+    geometry_msgs::PointStamped point51,point52;
+    geometry_msgs::PointStamped point61,point62;
+
+    double long_factor = 0.3;
+    double tlr1 = 0.3;
+    double tlr2 = 0.065;
+    double tlr3 = 0.1;
+    double tlr4 = 0.1;
+    double tlr5 = 0.08;
+    double tlr6 = 0.08;
+
 };
 
 Camera cam1(1), cam2(2);
@@ -234,18 +333,21 @@ void Camera::pic2cloud()
     desk_pc->width = desk_pc->points.size();
     ROS_INFO("[%s] Passed Table PointCloud Size = %i ",cam_num.c_str(),desk_pc->width);
 
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr y_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::PassThrough<pcl::PointXYZRGB> pass_y;
     pass_y.setInputCloud(desk_pc);
     pass_y.setFilterFieldName("y");
     pass_y.setFilterLimits(-1.0,1.0);
-    base_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
-    pass_y.filter(*base_pc);
+    pass_y.filter(*y_pc);
+    y_pc->height = 1;
+    y_pc->width = y_pc->points.size();
+    ROS_INFO("[%s] Pass_Y PointCloud Size = %i ",cam_num.c_str(),y_pc->width);
 
+    // 圆柱包络去除机械臂
+    base_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+    cull_self(y_pc, base_pc);
     base_pc->height = 1;
     base_pc->width = base_pc->points.size();
-    ROS_INFO("[%s] Pass_Y PointCloud Size = %i ",cam_num.c_str(),base_pc->width);
-
-    /* 圆柱包络去除机械臂 */
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cam_y_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::transformPointCloud(*base_pc, *cam_y_pc, cam_to_base.inverse().cast<float>());
@@ -292,6 +394,159 @@ void Camera::pic2cloud()
 
     // end = clock();
     // ROS_INFO("[%s] Total Running Time is: %f secs", cam_num.c_str(), static_cast<float>(end - start) / CLOCKS_PER_SEC);
+}
+
+void Camera::cull_self(const pcl::PointCloud<pcl::PointXYZRGB>::Ptr &full_pc, pcl::PointCloud<pcl::PointXYZRGB>::Ptr &cull_pc)
+{
+    tf::StampedTransform trans1, trans2, trans3, trans4, trans5, trans6;
+    Eigen::Vector3d cp11, cp21, cp31, cp41, cp51, cp61, cp12, cp22, cp32, cp42, cp52, cp62;
+
+    geometry_msgs::PointStamped point11_base, point12_base;
+    listener1->waitForTransform("/base_link", "/link_1",ros::Time(0.0),ros::Duration(1.0));
+    listener1->lookupTransform("/base_link", "/link_1",ros::Time(0.0),trans1);
+    listener1->transformPoint("/base_link", point11, point11_base);
+    listener1->transformPoint("/base_link", point12, point12_base);
+    cp11[0] = point11_base.point.x;
+    cp11[1] = point11_base.point.y;
+    cp11[2] = point11_base.point.z;
+    cp12[0] = point12_base.point.x;
+    cp12[1] = point12_base.point.y;
+    cp12[2] = point12_base.point.z;
+
+    geometry_msgs::PointStamped point21_base, point22_base;
+    listener2->waitForTransform("/base_link", "/link_2",ros::Time(0.0),ros::Duration(1.0));
+    listener2->lookupTransform("/base_link", "/link_2",ros::Time(0.0),trans2);
+    listener2->transformPoint("/base_link", point21, point21_base);
+    listener2->transformPoint("/base_link", point22, point22_base);
+    cp21[0] = point21_base.point.x;
+    cp21[1] = point21_base.point.y;
+    cp21[2] = point21_base.point.z;
+    cp22[0] = point22_base.point.x;
+    cp22[1] = point22_base.point.y;
+    cp22[2] = point22_base.point.z;
+
+    geometry_msgs::PointStamped point31_base, point32_base;
+    listener3->waitForTransform("/base_link", "/link_3",ros::Time(0.0),ros::Duration(1.0));
+    listener3->lookupTransform("/base_link", "/link_3",ros::Time(0.0),trans3);
+    listener3->transformPoint("/base_link", point31, point31_base);
+    listener3->transformPoint("/base_link", point32, point32_base);
+    cp31[0] = point31_base.point.x;
+    cp31[1] = point31_base.point.y;
+    cp31[2] = point31_base.point.z;
+    cp32[0] = point32_base.point.x;
+    cp32[1] = point32_base.point.y;
+    cp32[2] = point32_base.point.z;
+
+    geometry_msgs::PointStamped point41_base, point42_base;
+    listener4->waitForTransform("/base_link", "/link_4",ros::Time(0.0),ros::Duration(1.0));
+    listener4->lookupTransform("/base_link", "/link_4",ros::Time(0.0),trans4);
+    listener4->transformPoint("/base_link", point41, point41_base);
+    listener4->transformPoint("/base_link", point42, point42_base);
+    cp41[0] = point41_base.point.x;
+    cp41[1] = point41_base.point.y;
+    cp41[2] = point41_base.point.z;
+    cp42[0] = point42_base.point.x;
+    cp42[1] = point42_base.point.y;
+    cp42[2] = point42_base.point.z;
+
+    geometry_msgs::PointStamped point51_base, point52_base;
+    listener5->waitForTransform("/base_link", "/link_5",ros::Time(0.0),ros::Duration(1.0));
+    listener5->lookupTransform("/base_link", "/link_5",ros::Time(0.0),trans5);
+    listener5->transformPoint("/base_link", point51, point51_base);
+    listener5->transformPoint("/base_link", point52, point52_base);
+    cp51[0] = point51_base.point.x;
+    cp51[1] = point51_base.point.y;
+    cp51[2] = point51_base.point.z;
+    cp52[0] = point52_base.point.x;
+    cp52[1] = point52_base.point.y;
+    cp52[2] = point52_base.point.z;
+
+    geometry_msgs::PointStamped point61_base, point62_base;
+    listener6->waitForTransform("/base_link", "/link_6",ros::Time(0.0),ros::Duration(1.0));
+    listener6->lookupTransform("/base_link", "/link_6",ros::Time(0.0),trans6);
+    listener6->transformPoint("/base_link", point61, point61_base);
+    listener6->transformPoint("/base_link", point62, point62_base);
+    cp61[0] = point61_base.point.x;
+    cp61[1] = point61_base.point.y;
+    cp61[2] = point61_base.point.z;
+    cp62[0] = point62_base.point.x;
+    cp62[1] = point62_base.point.y;
+    cp62[2] = point62_base.point.z;
+
+    int obs_count1 = 0;
+    int obs_count2 = 0;
+
+    pcl::PointCloud<pcl::PointXYZRGB>::iterator index = full_pc->begin();
+    for(size_t i=0; i<full_pc->size(); ++i)
+    {
+        Eigen::Vector3d c;
+        c[0] = full_pc->points[i].x;
+        c[1] = full_pc->points[i].y;
+        c[2] = full_pc->points[i].z;
+
+        double dis = sqrt(pow(c[0],2.0)+pow(c[1],2)+pow(c[2],2));
+        
+        double dis1 = DistanceOfPointToLine(cp11, cp12, c);
+        if(dis1 < tlr1 && AngleJudge(c, cp11, cp12) && AngleJudge(c, cp12, cp11))
+        {
+          continue;
+        }
+        double dis2 = DistanceOfPointToLine(cp21, cp22, c);
+        if(dis2 < tlr2 && AngleJudge(c, cp21, cp22) && AngleJudge(c, cp22, cp21))
+        {
+          continue;
+        }
+        double dis3 = DistanceOfPointToLine(cp31, cp32, c);
+        if(dis3 < tlr3 && AngleJudge(c, cp31, cp32) && AngleJudge(c, cp32, cp31))
+        {
+          continue;
+        }
+        double dis4 = DistanceOfPointToLine(cp41, cp42, c);
+        if(dis4 < tlr4 && AngleJudge(c, cp41, cp42) && AngleJudge(c, cp42, cp41))
+        {
+          continue;
+        }
+        double dis5 = DistanceOfPointToLine(cp51, cp52, c);
+        if(dis5 < tlr5 && AngleJudge(c, cp51, cp52) && AngleJudge(c, cp52, cp51))
+        {
+          continue;
+        }
+        double dis6 = DistanceOfPointToLine(cp61, cp62, c);
+        if(dis6 < tlr6 && AngleJudge(c, cp61, cp62) && AngleJudge(c, cp62, cp61))
+        {
+          continue;
+        }
+
+        cull_pc->push_back(full_pc->points[i]);
+
+    }
+
+    cull_pc->height = 1;
+    cull_pc->width = cull_pc->points.size();
+
+    return;
+}
+
+/*** 点到直线距离 ***/
+double Camera::DistanceOfPointToLine(Eigen::Vector3d a, Eigen::Vector3d b, Eigen::Vector3d s) 
+{ 
+    // std::cout<<"a:"<<b->x<<b->y<<b->z<<std::endl;
+    double ab = sqrt(pow((a[0] - b[0]), 2.0) + pow((a[1] - b[1]), 2.0) + pow((a[2] - b[2]), 2.0));
+    double as = sqrt(pow((a[0] - s[0]), 2.0) + pow((a[1] - s[1]), 2.0) + pow((a[2] - s[2]), 2.0));
+    double bs = sqrt(pow((s[0] - b[0]), 2.0) + pow((s[1] - b[1]), 2.0) + pow((s[2] - b[2]), 2.0));
+    double cos_A = (pow(as, 2.0) + pow(ab, 2.0) - pow(bs, 2.0)) / (2 * ab*as);
+    double sin_A = sqrt(1 - pow(cos_A, 2.0));
+    // std::cout<<"ab:"<<ab<<"as:"<<as<<"bs:"<<bs<<"cosA:"<<cos_A<<std::endl;
+    return as*sin_A; 
+}
+
+/*** 判断<ABC为钝角(0)或锐角(1) ***/
+bool Camera::AngleJudge(Eigen::Vector3d a, Eigen::Vector3d b, Eigen::Vector3d c)
+{
+    double inner = (a[0] - (1+long_factor)*b[0] + long_factor*c[0])*(c[0] - b[0]) + (a[1] - (1+long_factor)*b[1] + long_factor*c[1])*(c[1] - b[1]) + (a[2] - (1+long_factor)*b[2] + long_factor*c[2])*(c[2] - b[2]);
+    if(inner > 0) //锐角
+    {return true;}
+    else{return false;}
 }
 
 /***  点云深度包围盒区间求取  ***/
@@ -1079,9 +1334,16 @@ int main(int argc, char** argv){
 
     tf::TransformListener* lis_cam1 = new(tf::TransformListener);
     tf::TransformListener* lis_cam2 = new(tf::TransformListener);
+
+    tf::TransformListener* lis1 = new(tf::TransformListener);
+    tf::TransformListener* lis2 = new(tf::TransformListener);
+    tf::TransformListener* lis3 = new(tf::TransformListener);
+    tf::TransformListener* lis4 = new(tf::TransformListener);
+    tf::TransformListener* lis5 = new(tf::TransformListener);
+    tf::TransformListener* lis6 = new(tf::TransformListener);
     
-    cam1 = Camera(1,lis_cam1);
-    cam2 = Camera(2,lis_cam2);
+    cam1 = Camera(1,lis_cam1,lis1, lis2, lis3, lis4, lis5, lis6);
+    cam2 = Camera(2,lis_cam2,lis1, lis2, lis3, lis4, lis5, lis6);
 
     // D435 CAM_1
     cam1.fx = 608.7494506835938;
