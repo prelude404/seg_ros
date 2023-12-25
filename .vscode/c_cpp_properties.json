@@ -6,7 +6,13 @@
         "limitSymbolsToIncludedHeaders": false
       },
       "includePath": [
+        "${workspaceFolder}/**",
         "/home/joy/mm_ws/devel/include/**",
+        "/home/joy/mm_ws/src/active_vision_control/include/**",
+        "/home/joy/mm_ws/src/ftservoControl/include/**",
+        "/home/joy/mm_ws/src/jaka_path_searching/include/**",
+        "/home/joy/mm_ws/src/mmdeploy/include/**",
+        "/home/joy/mm_ws/src/seg_ros/include/**",
         "/home/joy/OCTOMAP_WS/devel/include/**",
         "/home/joy/jaka_ws/devel/include/**",
         "/opt/ros/noetic/include/**",

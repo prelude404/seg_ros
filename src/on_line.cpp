@@ -71,6 +71,8 @@ public:
         scores.resize(point_num,1);
         positions.resize(3,point_num);
 
+        z_interval = {0.0,2.0};
+
         listener1 = nullptr;
         listener2 = nullptr;
         listener3 = nullptr;
@@ -91,6 +93,8 @@ public:
         point_exist.resize(point_num,1);
         positions.resize(3,point_num);
 
+        z_interval = {0.0,2.0};
+
         listener1 = lis1;
         listener2 = lis2;
         listener3 = lis3;
@@ -110,11 +114,11 @@ public:
         point21.header.frame_id = "/link_2";
         point21.point.x = 0.0;
         point21.point.y = 0.0;
-        point21.point.z = -0.145;
+        point21.point.z = -0.155;
         point22.header.frame_id = "/link_2";
         point22.point.x = 0.425;
         point22.point.y = 0.0;
-        point22.point.z = -0.145;
+        point22.point.z = -0.155;
 
         point31.header.frame_id = "/link_3";
         point31.point.x = 0.0;
@@ -132,7 +136,7 @@ public:
         point42.header.frame_id = "/link_4";
         point42.point.x = 0.0;
         point42.point.y = 0.0;
-        point42.point.z = 0.15;
+        point42.point.z = 0.18;
 
         point51.header.frame_id = "/link_5";
         point51.point.x = 0.0;
@@ -146,7 +150,7 @@ public:
         point61.header.frame_id = "/link_6";
         point61.point.x = 0.0;
         point61.point.y = 0.0;
-        point61.point.z = 0.15;
+        point61.point.z = 0.05;
         point62.header.frame_id = "/link_6";
         point62.point.x = 0.0;
         point62.point.y = 0.0;
@@ -205,13 +209,13 @@ private:
     geometry_msgs::PointStamped point51,point52;
     geometry_msgs::PointStamped point61,point62;
 
-    double long_factor = 0.3;
-    double tlr1 = 0.3;
-    double tlr2 = 0.065;
-    double tlr3 = 0.1;
-    double tlr4 = 0.1;
-    double tlr5 = 0.08;
-    double tlr6 = 0.08;
+    double long_factor = 0.05;
+    double tlr1 = 0.085;
+    double tlr2 = 0.22;
+    double tlr3 = 0.22;
+    double tlr4 = 0.10;
+    double tlr5 = 0.10;
+    double tlr6 = 0.10;
 
 };
 
@@ -326,7 +330,7 @@ void Camera::pic2cloud()
     pcl::PassThrough<pcl::PointXYZRGB> pass_desk;
     pass_desk.setInputCloud(base_pc);
     pass_desk.setFilterFieldName("z");
-    pass_desk.setFilterLimits(0.05, 1.50);
+    pass_desk.setFilterLimits(0.10, 1.50);
     pass_desk.filter(*desk_pc);
 
     desk_pc->height = 1;
@@ -343,14 +347,30 @@ void Camera::pic2cloud()
     y_pc->width = y_pc->points.size();
     ROS_INFO("[%s] Pass_Y PointCloud Size = %i ",cam_num.c_str(),y_pc->width);
 
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr x_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::PassThrough<pcl::PointXYZRGB> pass_x;
+    pass_x.setInputCloud(y_pc);
+    pass_x.setFilterFieldName("x");
+    pass_x.setFilterLimits(-1.0,0.0);
+    pass_x.filter(*x_pc);
+    x_pc->height = 1;
+    x_pc->width = x_pc->points.size();
+    ROS_INFO("[%s] Pass_X PointCloud Size = %i ",cam_num.c_str(),x_pc->width);
+
     // 圆柱包络去除机械臂
     base_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
-    cull_self(y_pc, base_pc);
+    cull_self(x_pc, base_pc);
     base_pc->height = 1;
     base_pc->width = base_pc->points.size();
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cam_y_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::transformPointCloud(*base_pc, *cam_y_pc, cam_to_base.inverse().cast<float>());
+
+    if(cam_y_pc->empty()){
+        ROS_INFO("[%s] Human Point Cloud NONE",cam_num.c_str());
+        cam_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+        return;
+    }
     
     // 对于人体点云进行欧式聚类
     pcl::search::KdTree<pcl::PointXYZRGB>::Ptr tree(new pcl::search::KdTree<pcl::PointXYZRGB>);
@@ -358,29 +378,52 @@ void Camera::pic2cloud()
 
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
-    ec.setClusterTolerance(0.04); // 设置点云之间的距离阈值
-    ec.setMinClusterSize(5); // 设置点云簇的最小大小
+    ec.setClusterTolerance(0.05); // 设置点云之间的距离阈值
+    ec.setMinClusterSize(40); // 设置点云簇的最小大小
     ec.setMaxClusterSize(9999); // 设置点云簇的最大大小
     ec.setSearchMethod(tree);
     ec.setInputCloud(cam_y_pc);
     ec.extract(cluster_indices);
 
-    // 寻找最大的点云簇
-    size_t largest_cluster_index = 0;
-    size_t largest_cluster_size = 0;
+    ROS_INFO("[%s] Number of Indices: %li", cam_num.c_str(), cluster_indices.size());
 
-    for (size_t i = 0; i < cluster_indices.size(); ++i) {
-        if (cluster_indices[i].indices.size() > largest_cluster_size) {
-            largest_cluster_size = cluster_indices[i].indices.size();
-            largest_cluster_index = i;
-        }
+    cam_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+
+    for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
+    {       
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr cluster_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+
+        // 提取当前簇的点
+        pcl::ExtractIndices<pcl::PointXYZRGB> extract;
+        extract.setInputCloud(cam_y_pc);
+        pcl::PointIndices::Ptr cluster_indices(new pcl::PointIndices(*it));
+        extract.setIndices(cluster_indices);
+        extract.filter(*cluster_cloud);
+        
+        // 将当前簇的点添加到 clustered_cloud 中
+        *cam_pc += *cluster_cloud;
     }
 
-    pcl::ExtractIndices<pcl::PointXYZRGB> extract;
-    extract.setInputCloud(cam_y_pc);
-    extract.setIndices(boost::make_shared<const pcl::PointIndices>(cluster_indices[largest_cluster_index]));
-    cam_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
-    extract.filter(*cam_pc);
+    // // 寻找最大的点云簇
+    // size_t largest_cluster_index = 0;
+    // size_t largest_cluster_size = 0;
+
+    // for (size_t i = 0; i < cluster_indices.size(); ++i) {
+    //     if (cluster_indices[i].indices.size() > largest_cluster_size) {
+    //         largest_cluster_size = cluster_indices[i].indices.size();
+    //         largest_cluster_index = i;
+    //     }
+    // }
+
+    // pcl::ExtractIndices<pcl::PointXYZRGB> extract;
+    // extract.setInputCloud(cam_y_pc);
+    // extract.setIndices(boost::make_shared<const pcl::PointIndices>(cluster_indices[largest_cluster_index]));
+    // cam_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+    // extract.filter(*cam_pc);
+
+    // 去除聚类
+    // cam_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+    // *cam_pc = *cam_y_pc;
 
     cam_pc->height = 1;
     cam_pc->width = cam_pc->points.size();
@@ -389,8 +432,8 @@ void Camera::pic2cloud()
 
     // ROS_INFO("Size of cam keypoints is: %li x %li", keypoints.rows(), keypoints.cols()); // 17x2
 
-    // base_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
-    // pcl::transformPointCloud(*cam_pc, *base_pc, cam_to_base); // cam_to_base
+    base_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+    pcl::transformPointCloud(*cam_pc, *base_pc, cam_to_base); // cam_to_base
 
     // end = clock();
     // ROS_INFO("[%s] Total Running Time is: %f secs", cam_num.c_str(), static_cast<float>(end - start) / CLOCKS_PER_SEC);
@@ -552,6 +595,8 @@ bool Camera::AngleJudge(Eigen::Vector3d a, Eigen::Vector3d b, Eigen::Vector3d c)
 /***  点云深度包围盒区间求取  ***/
 void Camera::get_z_interval()
 {
+    if(cam_pc->empty()) return;
+
     std::sort(cam_pc->points.begin(), cam_pc->points.end(), 
         [](const pcl::PointXYZRGB& point1, const pcl::PointXYZRGB& point2) {
             return point1.z < point2.z;
@@ -1324,6 +1369,7 @@ int main(int argc, char** argv){
     
     ros::Publisher pub_pc1 = nh.advertise<sensor_msgs::PointCloud2>("/pc_1", 1);
     ros::Publisher pub_pc2 = nh.advertise<sensor_msgs::PointCloud2>("/pc_2", 1);
+    ros::Publisher pub_human = nh.advertise<sensor_msgs::PointCloud2>("/pc_human", 1);
     ros::Publisher pub_markers = nh.advertise<visualization_msgs::MarkerArray>("/cylinder_marker", 1);
     ros::Publisher pub_cylinders = nh.advertise<std_msgs::Float64MultiArray>("/obsState", 1);
     ros::Publisher pub_mask1 = nh.advertise<sensor_msgs::Image>("/mask_1", 1);
@@ -1396,6 +1442,9 @@ int main(int argc, char** argv){
 
     sensor_msgs::PointCloud2 msg_pc1, msg_pc2, msg_part, msg_model;
 
+    pcl::PointCloud<pcl::PointXYZRGB>::Ptr pc_human(new pcl::PointCloud<pcl::PointXYZRGB>);
+    sensor_msgs::PointCloud2 msg_pc_human;
+
     std_msgs::Float64MultiArray msg_cylinder;
 
     ros::Rate loop_rate(30.0);
@@ -1430,6 +1479,14 @@ int main(int argc, char** argv){
         msg_pc2.header.frame_id = "cam_2_link";
         msg_pc2.header.stamp = ros::Time::now();
         pub_pc2.publish(msg_pc2); // 发布相机的整体人的点云
+
+        pc_human.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
+        *pc_human = *cam1.base_pc;
+        *pc_human += *cam2.base_pc;
+        pcl::toROSMsg(*pc_human, msg_pc_human);
+        msg_pc_human.header.frame_id = "base_link";
+        msg_pc_human.header.stamp = ros::Time::now();
+        pub_human.publish(msg_pc_human);
 
         human1.fuse_pos(cams); // 融合相机关键点信息
 
