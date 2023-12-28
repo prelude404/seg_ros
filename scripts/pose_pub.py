@@ -24,10 +24,10 @@ class Pose():
     def __init__(self):
         self.config_file = '/home/joy/Documents/configs/top_down/hrnet/td-hm_hrnet-w32_8xb64-210e_coco-256x192.py'
         self.checkpoint_file = '/home/joy/Documents/checkpoints/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth'
-        self.device = 'cpu'
+        # self.device = 'cpu'
         # print(torch.cuda.is_available())
         # print(torch.version.cuda)
-        # self.device = 'cuda:0' # 能用啦！！！
+        self.device = 'cuda:0' # 能用啦！！！
         self.model = init_model(self.config_file, self.checkpoint_file, device=self.device, cfg_options={'model': {'test_cfg': {'output_heatmaps': False}}})
         self.time = None
         self.img = None

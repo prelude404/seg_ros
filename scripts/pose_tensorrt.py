@@ -39,7 +39,7 @@ class Pose():
         self.message = KeypointsWithScores()
 
         self.deploy_file = '/home/joy/mm_ws/src/mmdeploy/configs/mmpose/pose-detection_tensorrt_dynamic-256x192.py'
-        self.backend_file = ['/home/joy/mm_ws/src/seg_ros/mmdeploy_model/hrnet/end2end.engine']
+        self.backend_file = ['/home/joy/Documents/mmdeploy_model/hrnet/end2end.engine']
 
         self.cfg1, self.cfg2 = load_config(self.config_file, self.deploy_file)
         # self.task_processor = build_task_processor(self.cfg1, self.cfg2, self.device)

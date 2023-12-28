@@ -40,7 +40,7 @@ def spin_job():
 
 
 if __name__=='__main__':
-    file_pose = open("/home/joy/mm_ws/src/seg_ros/demo/bag1.txt","r+")
+    file_pose = open("/home/joy/mm_ws/src/seg_ros/demo/bag2.txt","r+")
     file_pose.truncate()
 
     rospy.init_node('pose_record')
@@ -69,7 +69,7 @@ if __name__=='__main__':
         pose1_cur = reader.time1
         pose2_cur = reader.time2
 
-        file_handle = open("/home/joy/mm_ws/src/seg_ros/demo/bag1.txt","a+")
+        file_handle = open("/home/joy/mm_ws/src/seg_ros/demo/bag2.txt","a+")
 
         file_handle.write(str(reader.time1))
         file_handle.write('    ')
