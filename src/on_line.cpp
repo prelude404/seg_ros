@@ -183,13 +183,15 @@ public:
     Eigen::Matrix3Xd positions;
     Eigen::Vector2d z_interval;
 
-    double z_far_lim = 2.0; // 原始点云的视野限制
+    double z_far_lim = 5.0; // 原始点云的视野限制
     double grid_size = 0.02; // 体素滤波分辨率
+    // double grid_size = 0.005; // 体素滤波分辨率
     double z_delta = 0.90; // 深度包围盒点云比例
     int win_len = 5; // 滑窗的长度
     int r_len = 5; // 平均深度的方框
     double gamma = 0.7; // 遗忘因子
     double alpha = 2.0; // 限制力度
+    // double alpha = 0.5; // 实验用，更易判断存在
 
 private:
     tf::TransformListener* listener; // 读取base2cam
@@ -210,12 +212,12 @@ private:
     geometry_msgs::PointStamped point61,point62;
 
     double long_factor = 0.05;
-    double tlr1 = 0.085;
-    double tlr2 = 0.22;
-    double tlr3 = 0.22;
-    double tlr4 = 0.10;
-    double tlr5 = 0.10;
-    double tlr6 = 0.10;
+    double tlr1 = 0.065;
+    double tlr2 = 0.2;
+    double tlr3 = 0.2;
+    double tlr4 = 0.1;
+    double tlr5 = 0.1;
+    double tlr6 = 0.1;
 
 };
 
@@ -341,7 +343,7 @@ void Camera::pic2cloud()
     pcl::PassThrough<pcl::PointXYZRGB> pass_y;
     pass_y.setInputCloud(desk_pc);
     pass_y.setFilterFieldName("y");
-    pass_y.setFilterLimits(-1.0,1.0);
+    pass_y.setFilterLimits(-0.5,0.5);
     pass_y.filter(*y_pc);
     y_pc->height = 1;
     y_pc->width = y_pc->points.size();
@@ -351,7 +353,7 @@ void Camera::pic2cloud()
     pcl::PassThrough<pcl::PointXYZRGB> pass_x;
     pass_x.setInputCloud(y_pc);
     pass_x.setFilterFieldName("x");
-    pass_x.setFilterLimits(-1.0,0.0);
+    pass_x.setFilterLimits(-2.0,-0.65);
     pass_x.filter(*x_pc);
     x_pc->height = 1;
     x_pc->width = x_pc->points.size();
@@ -362,6 +364,7 @@ void Camera::pic2cloud()
     cull_self(x_pc, base_pc);
     base_pc->height = 1;
     base_pc->width = base_pc->points.size();
+    // *base_pc = *x_pc;
 
     pcl::PointCloud<pcl::PointXYZRGB>::Ptr cam_y_pc(new pcl::PointCloud<pcl::PointXYZRGB>);
     pcl::transformPointCloud(*base_pc, *cam_y_pc, cam_to_base.inverse().cast<float>());
@@ -379,7 +382,8 @@ void Camera::pic2cloud()
     std::vector<pcl::PointIndices> cluster_indices;
     pcl::EuclideanClusterExtraction<pcl::PointXYZRGB> ec;
     ec.setClusterTolerance(0.05); // 设置点云之间的距离阈值
-    ec.setMinClusterSize(40); // 设置点云簇的最小大小
+    // ec.setMinClusterSize(40); // 设置点云簇的最小大小
+    ec.setMinClusterSize(10); // 设置点云簇的最小大小
     ec.setMaxClusterSize(9999); // 设置点云簇的最大大小
     ec.setSearchMethod(tree);
     ec.setInputCloud(cam_y_pc);
@@ -389,6 +393,7 @@ void Camera::pic2cloud()
 
     cam_pc.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
 
+    // 仅作欧式聚类
     for (std::vector<pcl::PointIndices>::const_iterator it = cluster_indices.begin(); it != cluster_indices.end(); ++it)
     {       
         pcl::PointCloud<pcl::PointXYZRGB>::Ptr cluster_cloud(new pcl::PointCloud<pcl::PointXYZRGB>);
@@ -1449,11 +1454,11 @@ int main(int argc, char** argv){
 
     ros::Rate loop_rate(30.0);
 
-    while(ros::ok() && (!depth_ready1 || !color_ready1 || !pose_ready1 || !depth_ready2 || !color_ready2 || !pose_ready2)){
-        ros::spinOnce();
-        ROS_INFO("Waiting for Image or Pose Message...");
-        loop_rate.sleep();
-    }
+    // while(ros::ok() && (!depth_ready1 || !color_ready1 || !pose_ready1 || !depth_ready2 || !color_ready2 || !pose_ready2)){
+    //     ros::spinOnce();
+    //     ROS_INFO("Waiting for Image or Pose Message...");
+    //     loop_rate.sleep();
+    // }
 
     while(ros::ok())
     {
@@ -1470,59 +1475,77 @@ int main(int argc, char** argv){
             // cam.calc_pos(); // 计算关键点空间位置
         }
 
-        pcl::toROSMsg(*cam1.cam_pc, msg_pc1);
-        msg_pc1.header.frame_id = "cam_1_link";
+        pcl::toROSMsg(*cam1.base_pc, msg_pc1);
+        msg_pc1.header.frame_id = "base_link";
         msg_pc1.header.stamp = ros::Time::now();
         pub_pc1.publish(msg_pc1); // 发布相机的整体人的点云
 
-        pcl::toROSMsg(*cam2.cam_pc, msg_pc2);
-        msg_pc2.header.frame_id = "cam_2_link";
+        pcl::toROSMsg(*cam2.base_pc, msg_pc2);
+        msg_pc2.header.frame_id = "base_link";
         msg_pc2.header.stamp = ros::Time::now();
         pub_pc2.publish(msg_pc2); // 发布相机的整体人的点云
 
         pc_human.reset(new pcl::PointCloud<pcl::PointXYZRGB>);
-        *pc_human = *cam1.base_pc;
-        *pc_human += *cam2.base_pc;
+        
+        // *pc_human = *cam1.base_pc;
+        // *pc_human += *cam2.base_pc;
+
+        pcl::PointCloud<pcl::PointXYZRGB>::Ptr pc_merge(new pcl::PointCloud<pcl::PointXYZRGB>);
+        pcl::IterativeClosestPoint<pcl::PointXYZRGB, pcl::PointXYZRGB> icp;
+        icp.setMaximumIterations(500);
+        icp.setMaxCorrespondenceDistance(0.02);
+        icp.setTransformationEpsilon(1e-4);
+        icp.setEuclideanFitnessEpsilon(1e-4);
+        icp.setInputSource(cam1.base_pc);
+        icp.setInputTarget(cam2.base_pc);
+        icp.align(*pc_merge);
+        *pc_merge += *cam2.base_pc;
+        // 体素滤波
+        pcl::VoxelGrid<pcl::PointXYZRGB> vox;
+        vox.setInputCloud(pc_merge);
+        vox.setLeafSize(0.02, 0.02, 0.02);
+        vox.filter(*pc_human);
+
         pcl::toROSMsg(*pc_human, msg_pc_human);
         msg_pc_human.header.frame_id = "base_link";
         msg_pc_human.header.stamp = ros::Time::now();
         pub_human.publish(msg_pc_human);
 
-        human1.fuse_pos(cams); // 融合相机关键点信息
+        // human1.fuse_pos(cams); // 融合相机关键点信息
 
-        // human1.check_parts(); // 判断各部位存在性
+        // // human1.check_parts(); // 判断各部位存在性
 
-        human1.extract_parts(cams); // 提取存在部位点云
+        // human1.extract_parts(cams); // 提取存在部位点云
 
-        // 发布掩模图像
-        cv_bridge::CvImage cv_image;
-        cv_image.encoding = "bgr8";
-        cv_image.image = cam1.color_mask;
-        sensor_msgs::ImagePtr msg = cv_image.toImageMsg();
-        pub_mask1.publish(msg);
-        cv_image.image = cam2.color_mask;
-        msg = cv_image.toImageMsg();
-        pub_mask2.publish(msg);
+        // // 发布掩模图像
+        // cv_bridge::CvImage cv_image;
+        // cv_image.encoding = "bgr8";
+        // cv_image.image = cam1.color_mask;
+        // sensor_msgs::ImagePtr msg = cv_image.toImageMsg();
+        // pub_mask1.publish(msg);
+        // cv_image.image = cam2.color_mask;
+        // msg = cv_image.toImageMsg();
+        // pub_mask2.publish(msg);
 
-        human1.icp_cylinder(); // 配准部位点云与圆柱模型
+        // human1.icp_cylinder(); // 配准部位点云与圆柱模型
 
-        pcl::toROSMsg((*human1.human_dict[0].point_cloud + *human1.human_dict[1].point_cloud), msg_part);
-        msg_part.header.frame_id = "base_link";
-        msg_part.header.stamp = ros::Time::now();
-        pub_part.publish(msg_part);
+        // pcl::toROSMsg((*human1.human_dict[0].point_cloud + *human1.human_dict[1].point_cloud), msg_part);
+        // msg_part.header.frame_id = "base_link";
+        // msg_part.header.stamp = ros::Time::now();
+        // pub_part.publish(msg_part);
 
-        pcl::toROSMsg(*human1.human_pc, msg_model);
-        msg_model.header.frame_id = "base_link";
-        msg_model.header.stamp = ros::Time::now();
-        pub_model.publish(msg_model);
+        // pcl::toROSMsg(*human1.human_pc, msg_model);
+        // msg_model.header.frame_id = "base_link";
+        // msg_model.header.stamp = ros::Time::now();
+        // pub_model.publish(msg_model);
 
-        human1.pub_cylinder(msg_cylinder); // 更新圆柱位姿消息
+        // human1.pub_cylinder(msg_cylinder); // 更新圆柱位姿消息
 
-        pub_cylinders.publish(msg_cylinder);
+        // pub_cylinders.publish(msg_cylinder);
 
-        human1.update_markers(marker_array); // 更新圆柱marker信息
+        // human1.update_markers(marker_array); // 更新圆柱marker信息
 
-        pub_markers.publish(marker_array); // 发布人体圆柱消息
+        // pub_markers.publish(marker_array); // 发布人体圆柱消息
         
         ros::spinOnce();
         loop_rate.sleep();

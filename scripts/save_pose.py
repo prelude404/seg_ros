@@ -9,20 +9,20 @@ import json
 import pickle
 
 print('指定模型的配置文件和checkpoint文件路径')
-config_file = '/home/joy/mm_ws/src/seg_ros/configs/top_down/hrnet/td-hm_hrnet-w32_8xb64-210e_coco-256x192.py'
-checkpoint_file = '/home/joy/mm_ws/src/seg_ros/checkpoints/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth'
+config_file = '/home/joy/Documents/configs/top_down/hrnet/td-hm_hrnet-w32_8xb64-210e_coco-256x192.py'
+checkpoint_file = '/home/joy/Documents/checkpoints/top_down/hrnet/hrnet_w32_coco_256x192-c78dce93_20200708.pth'
 
 print('根据配置文件和checkpoint文件构建模型')
-device = 'cpu'
-# device = 'cuda:0'
+# device = 'cpu'
+device = 'cuda:0'
 model = init_model(config_file, checkpoint_file, device=device, cfg_options={'model': {'test_cfg': {'output_heatmaps': True}}})
 
 time_start = time.time()
 
 print('测试多张图片并展示结果')
 
-for i in range(1,20):
-    img_path = '/home/joy/mm_ws/src/seg_ros/images/color/color_'+str(i)+'.png'
+for i in range(1,131):
+    img_path = '/home/joy/Documents/24-0122/mask/data/color2/color_'+str(i)+'.png'
     # img_path = '/home/joy/mm_ws/src/seg_ros/demo/yyj1.jpeg'
     img = mmcv.imread(img_path)
     result = inference_topdown(model, img)
@@ -33,8 +33,8 @@ for i in range(1,20):
         "scores": data_samples.pred_instances.keypoint_scores[0,:].tolist()
     }
 
-    with open('/home/joy/mm_ws/src/seg_ros/images/pose/json/pose_'+str(i)+'.json', 'w') as json_file:
-        json.dump(data, json_file, indent=2)
+    # with open('/home/joy/mm_ws/src/seg_ros/images/pose/json/pose_'+str(i)+'.json', 'w') as json_file:
+    #     json.dump(data, json_file, indent=2)
 
     # with open('/home/joy/mm_ws/src/seg_ros/images/pose/keypoints/keypoints_'+str(i)+'.pkl', 'wb') as file1:
     #     pickle.dump(data_samples.pred_instances.keypoints[0,:,:].tolist(), file1)
@@ -50,7 +50,7 @@ for i in range(1,20):
     # 元数据
     visualizer.set_dataset_meta(model.dataset_meta)
 
-    output_path = '/home/joy/mm_ws/src/seg_ros/images/pose/png/pose_'+str(i)+'.png'
+    output_path = '/home/joy/Documents/24-0122/mask/data/pose2/pose_'+str(i)+'.png'
     img = mmcv.imconvert(img, 'bgr', 'rgb')
     img_output = visualizer.add_datasample(
             'result',

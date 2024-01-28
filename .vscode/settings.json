@@ -83,6 +83,7 @@
         "bit": "cpp",
         "eigen": "cpp",
         "core": "cpp",
-        "*.ipp": "cpp"
+        "*.ipp": "cpp",
+        "geometry": "cpp"
     }
 }

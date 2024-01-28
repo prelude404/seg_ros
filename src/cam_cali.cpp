@@ -124,7 +124,7 @@ int main(int argc, char **argv)
     ros::NodeHandle nh;
 
     image_transport::ImageTransport it1(nh);
-    image_transport::Subscriber sub_color1 = it1.subscribe(("/cam_1/color/image_raw"), 1, color_cb1);
+    image_transport::Subscriber sub_color1 = it1.subscribe(("/cam_2/color/image_raw"), 1, color_cb1);
 
     ros::Subscriber sub_flag = nh.subscribe<std_msgs::Bool>("/estimate_flag", 1, flag_cb);
 
@@ -137,15 +137,15 @@ int main(int argc, char **argv)
     Eigen::Matrix4d mat1 = Eigen::Matrix4d::Identity();
 
     // 两台相机的内参矩阵
-    camera_matrix = (cv::Mat_<double>(3, 3) <<
-                        608.7494506835938, 0.0, 315.4583435058594,
-                        0.0, 608.6277465820312, 255.28733825683594,
-                        0.0, 0.0, 1.0);
-
     // camera_matrix = (cv::Mat_<double>(3, 3) <<
-    //                     606.3751831054688, 0.0, 331.2972717285156,
-    //                     0.0, 604.959716796875, 243.7368927001953,
+    //                     608.7494506835938, 0.0, 315.4583435058594,
+    //                     0.0, 608.6277465820312, 255.28733825683594,
     //                     0.0, 0.0, 1.0);
+
+    camera_matrix = (cv::Mat_<double>(3, 3) <<
+                        606.3751831054688, 0.0, 331.2972717285156,
+                        0.0, 604.959716796875, 243.7368927001953,
+                        0.0, 0.0, 1.0);
 
     ros::Rate loop_rate(30.0), true_rate(1.0);
 

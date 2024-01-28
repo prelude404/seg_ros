@@ -277,7 +277,7 @@ int main(int argc, char **argv)
             pub_trans2.publish(trans_msg2);
             
             // 读取10次两台相机之间的转换矩阵用于求均值
-            if(mean_time < 100){
+            if(mean_time < 500){
                 Eigen::Matrix4d cam2_cam1 = mat1 * mat2.inverse();
                 std::cout << "#" << mean_time << "# Trans Matrix[cam2_cam1]: " << cam2_cam1 << std::endl;
                 result.push_back(cam2_cam1);

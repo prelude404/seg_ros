@@ -70,6 +70,9 @@ include_directories(
 add_executable(save_images src/save_images.cpp)
 target_link_libraries(save_images ${catkin_LIBRARIES} ${OpenCV_LIBS})
 
+add_executable(save_eve src/save_eve.cpp)
+target_link_libraries(save_eve ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS})
+
 add_executable(truncator src/truncator.cpp)
 target_link_libraries(truncator ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBS} )
 
